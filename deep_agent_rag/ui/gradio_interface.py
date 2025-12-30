@@ -206,7 +206,7 @@ def create_gradio_interface(graph):
             <div class="header">
             <h1>🚀 Deep Research Agent with RAG (Local MLX)</h1>
             <p><strong>功能特色：</strong></p>
-            <p>📊 股票資訊查詢 | 🌐 網路搜尋 | 📚 PDF 知識庫查詢（Tree of Thoughts 論文）</p>
+            <p>📊 股票資訊查詢 | 🌐 網路搜尋 | 📚 PDF 知識庫查詢（Tree of Thoughts 論文）| 📧 智能郵件助手</p>
             <p><strong>智能規劃：</strong> 系統會根據問題類型自動選擇合適的研究工具</p>
             <p><strong>本地模型：</strong> 使用 MLX 本地模型，保護隱私，無需 API 金鑰</p>
             </div>
@@ -214,137 +214,338 @@ def create_gradio_interface(graph):
             elem_classes=["header"]
         )
         
-        with gr.Row():
-            with gr.Column(scale=2):
-                # 輸入區域
-                query_input = gr.Textbox(
-                    label="📝 請輸入您的研究問題",
-                    placeholder="例如：說明Tree of Thoughts，並深度比較他跟Chain of Thought的差距在哪裡？",
-                    lines=3,
-                    value="比較微軟(MSFT)和谷歌(GOOGL)在AI領域的佈局，並結合 Tree of Thoughts 論文中的方法論進行分析"
-                )
-                
-                # 按鈕區域
-                with gr.Row():
-                    submit_btn = gr.Button("🔍 開始研究", variant="primary", scale=1)
-                    clear_btn = gr.Button("🗑️ 清除", variant="secondary", scale=1)
-                
-                # 狀態顯示
-                status_display = gr.Textbox(
-                    label="📊 當前狀態",
-                    value="等待開始...",
-                    interactive=False,
-                    lines=2
-                )
-                
-                # 警告訊息顯示
-                warning_display = gr.Markdown(
-                    value="",
-                    elem_classes=["warning-box"]
-                )
+        # 使用 Tabs 分離不同功能
+        with gr.Tabs() as tabs:
+            # Tab 1: Deep Research Agent
+            with gr.Tab("🔍 Deep Research Agent"):
+                _create_research_interface(graph)
             
-            with gr.Column(scale=1):
-                # 任務列表
-                tasks_display = gr.Textbox(
-                    label="📋 研究任務列表",
-                    lines=12,
-                    interactive=False
-                )
-        
-        with gr.Row():
-            # 研究筆記（實時更新）
-            notes_display = gr.Textbox(
-                label="📌 研究筆記（實時更新）",
-                lines=15,
-                interactive=False
-            )
-        
-        with gr.Row():
-            # 最終報告
-            report_display = gr.Textbox(
-                label="📄 最終深度報告",
-                lines=20,
-                interactive=False
-            )
-        
-        # 事件處理函數
-        def process_query(query):
-            """處理查詢並返回流式更新"""
-            if not query or not query.strip():
-                return "❌ 請輸入問題", "", "", "", ""
-            
-            # 使用生成器函數實時更新（Gradio 6.x 支持流式輸出）
-            for status, tasks, notes, report, warning in run_research_agent(query, graph):
-                yield status, tasks, notes, report, warning
-        
-        def clear_all():
-            """清除所有輸入和輸出"""
-            # 檢查當前 LLM 狀態
-            warning_msg = ""
-            if is_using_local_llm():
-                warning_msg = "⚠️ **警告：Groq API 額度已用完，已切換到本地 MLX 模型 (Qwen2.5)**\n\n本地模型處理速度可能較慢，請耐心等待。"
-            else:
-                llm_type = get_llm_type()
-                if llm_type == "groq":
-                    warning_msg = "✅ **當前使用：Groq API**"
-                else:
-                    warning_msg = "ℹ️ **當前使用：本地 MLX 模型 (Qwen2.5)**"
-            return "", "", "", "", "等待開始...", warning_msg
-        
-        # 綁定事件
-        submit_btn.click(
-            fn=process_query,
-            inputs=query_input,
-            outputs=[status_display, tasks_display, notes_display, report_display, warning_display]
-        )
-        
-        clear_btn.click(
-            fn=clear_all,
-            outputs=[query_input, tasks_display, notes_display, report_display, status_display, warning_display]
-        )
-        
-        # 初始化時顯示當前 LLM 狀態
-        def get_initial_warning():
-            warning_msg = ""
-            if is_using_local_llm():
-                warning_msg = "⚠️ **警告：Groq API 額度已用完，已切換到本地 MLX 模型 (Qwen2.5)**\n\n本地模型處理速度可能較慢，請耐心等待。"
-            else:
-                llm_type = get_llm_type()
-                if llm_type == "groq":
-                    warning_msg = "✅ **當前使用：Groq API**"
-                else:
-                    warning_msg = "ℹ️ **當前使用：本地 MLX 模型 (Qwen2.5)**"
-            return warning_msg
-        
-        # 在界面載入時顯示初始警告
-        demo.load(
-            fn=get_initial_warning,
-            outputs=[warning_display]
-        )
-        
-        # 示例問題（快速測試）
-        gr.Examples(
-            examples=[
-                "說明Tree of Thoughts，並深度比較他跟Chain of Thought的差距在哪裡？",
-                "比較微軟(MSFT)和谷歌(GOOGL)在AI領域的佈局",
-                "分析 Tree of Thoughts 方法的優缺點和應用場景",
-                "查詢蘋果(AAPL)的財務狀況和近期動態"
-            ],
-            inputs=query_input
-        )
-        
-        # 頁腳說明
-        gr.Markdown(
-            """
-            ---
-            **使用說明：**
-            1. 在輸入框中輸入您的研究問題
-            2. 點擊「開始研究」按鈕
-            3. 系統會自動規劃研究步驟並執行
-            4. 您可以實時查看任務進度、研究筆記和最終報告
-            5. 點擊「清除」按鈕可以重置所有內容
-            """
-        )
+            # Tab 2: Email Tool
+            with gr.Tab("📧 Email Tool"):
+                _create_email_interface()
     
     return demo
+
+
+def _create_research_interface(graph):
+    """創建 Deep Research Agent 界面"""
+    with gr.Row():
+        with gr.Column(scale=2):
+            # 輸入區域
+            query_input = gr.Textbox(
+                label="📝 請輸入您的研究問題",
+                placeholder="例如：說明Tree of Thoughts，並深度比較他跟Chain of Thought的差距在哪裡？",
+                lines=3,
+                value="比較微軟(MSFT)和谷歌(GOOGL)在AI領域的佈局，並結合 Tree of Thoughts 論文中的方法論進行分析"
+            )
+            
+            # 按鈕區域
+            with gr.Row():
+                submit_btn = gr.Button("🔍 開始研究", variant="primary", scale=1)
+                clear_btn = gr.Button("🗑️ 清除", variant="secondary", scale=1)
+            
+            # 狀態顯示
+            status_display = gr.Textbox(
+                label="📊 當前狀態",
+                value="等待開始...",
+                interactive=False,
+                lines=2
+            )
+            
+            # 警告訊息顯示
+            warning_display = gr.Markdown(
+                value="",
+                elem_classes=["warning-box"]
+            )
+        
+        with gr.Column(scale=1):
+            # 任務列表
+            tasks_display = gr.Textbox(
+                label="📋 研究任務列表",
+                lines=12,
+                interactive=False
+            )
+    
+    with gr.Row():
+        # 研究筆記（實時更新）
+        notes_display = gr.Textbox(
+            label="📌 研究筆記（實時更新）",
+            lines=15,
+            interactive=False
+        )
+    
+    with gr.Row():
+        # 最終報告
+        report_display = gr.Textbox(
+            label="📄 最終深度報告",
+            lines=20,
+            interactive=False
+        )
+    
+    # 事件處理函數
+    def process_query(query):
+        """處理查詢並返回流式更新"""
+        if not query or not query.strip():
+            return "❌ 請輸入問題", "", "", "", ""
+        
+        # 使用生成器函數實時更新（Gradio 6.x 支持流式輸出）
+        for status, tasks, notes, report, warning in run_research_agent(query, graph):
+            yield status, tasks, notes, report, warning
+    
+    def clear_all():
+        """清除所有輸入和輸出"""
+        # 檢查當前 LLM 狀態
+        warning_msg = ""
+        if is_using_local_llm():
+            warning_msg = "⚠️ **警告：Groq API 額度已用完，已切換到本地 MLX 模型 (Qwen2.5)**\n\n本地模型處理速度可能較慢，請耐心等待。"
+        else:
+            llm_type = get_llm_type()
+            if llm_type == "groq":
+                warning_msg = "✅ **當前使用：Groq API**"
+            else:
+                warning_msg = "ℹ️ **當前使用：本地 MLX 模型 (Qwen2.5)**"
+        return "", "", "", "", "等待開始...", warning_msg
+    
+    # 綁定事件
+    submit_btn.click(
+        fn=process_query,
+        inputs=query_input,
+        outputs=[status_display, tasks_display, notes_display, report_display, warning_display]
+    )
+    
+    clear_btn.click(
+        fn=clear_all,
+        outputs=[query_input, tasks_display, notes_display, report_display, status_display, warning_display]
+    )
+    
+    # 初始化時顯示當前 LLM 狀態
+    def get_initial_warning():
+        warning_msg = ""
+        if is_using_local_llm():
+            warning_msg = "⚠️ **警告：Groq API 額度已用完，已切換到本地 MLX 模型 (Qwen2.5)**\n\n本地模型處理速度可能較慢，請耐心等待。"
+        else:
+            llm_type = get_llm_type()
+            if llm_type == "groq":
+                warning_msg = "✅ **當前使用：Groq API**"
+            else:
+                warning_msg = "ℹ️ **當前使用：本地 MLX 模型 (Qwen2.5)**"
+        return warning_msg
+    
+    # 在界面載入時顯示初始警告
+    warning_display.value = get_initial_warning()
+    
+    # 示例問題（快速測試）
+    gr.Examples(
+        examples=[
+            "說明Tree of Thoughts，並深度比較他跟Chain of Thought的差距在哪裡？",
+            "比較微軟(MSFT)和谷歌(GOOGL)在AI領域的佈局",
+            "分析 Tree of Thoughts 方法的優缺點和應用場景",
+            "查詢蘋果(AAPL)的財務狀況和近期動態"
+        ],
+        inputs=query_input
+    )
+    
+    # 頁腳說明
+    gr.Markdown(
+        """
+        ---
+        **使用說明：**
+        1. 在輸入框中輸入您的研究問題
+        2. 點擊「開始研究」按鈕
+        3. 系統會自動規劃研究步驟並執行
+        4. 您可以實時查看任務進度、研究筆記和最終報告
+        5. 點擊「清除」按鈕可以重置所有內容
+        """
+    )
+
+
+def _create_email_interface():
+    """創建 Email Tool 界面"""
+    from ..agents.email_agent import generate_email_draft, send_email_draft
+    from ..config import EMAIL_SENDER
+    
+    gr.Markdown(
+        f"""
+        ### 📧 智能郵件助手
+        
+        使用 AI 根據您的關鍵提示自動生成專業郵件草稿，您可以在發送前檢查和修改。
+        
+        **寄件者：** {EMAIL_SENDER}
+        
+        **使用方式：**
+        1. 在下方輸入郵件提示（例如："寫一封感謝信"、"邀請參加會議"等）
+        2. 輸入收件人郵箱地址
+        3. 點擊「生成郵件草稿」按鈕
+        4. 檢查並修改生成的郵件內容（特別是簽名部分）
+        5. 確認無誤後點擊「發送郵件」按鈕
+        """
+    )
+    
+    with gr.Row():
+        with gr.Column(scale=1):
+            # 郵件提示輸入
+            email_prompt_input = gr.Textbox(
+                label="📝 郵件提示",
+                placeholder="例如：寫一封感謝信，感謝對方在項目中的幫助",
+                lines=5,
+                value="寫一封專業的郵件，介紹我們的 AI 產品"
+            )
+            
+            # 收件人輸入
+            recipient_input = gr.Textbox(
+                label="📮 收件人郵箱",
+                placeholder="recipient@example.com",
+                lines=1
+            )
+            
+            # 按鈕
+            with gr.Row():
+                generate_draft_btn = gr.Button("📝 生成郵件草稿", variant="primary", scale=1)
+                clear_email_btn = gr.Button("🗑️ 清除", variant="secondary", scale=1)
+            
+            # 狀態顯示
+            email_status_display = gr.Textbox(
+                label="📊 狀態",
+                value="等待操作...",
+                interactive=False,
+                lines=2
+            )
+        
+        with gr.Column(scale=1):
+            # 郵件主題（可編輯）
+            email_subject_input = gr.Textbox(
+                label="📌 郵件主題",
+                placeholder="郵件主題將在這裡顯示，您可以編輯",
+                lines=1,
+                interactive=True
+            )
+            
+            # 郵件正文（可編輯）
+            email_body_input = gr.Textbox(
+                label="📄 郵件正文（可編輯）",
+                placeholder="郵件內容將在這裡顯示，您可以編輯",
+                lines=15,
+                interactive=True
+            )
+            
+            # 發送按鈕
+            send_draft_btn = gr.Button("📧 發送郵件", variant="primary", scale=1)
+            
+            # 發送結果顯示
+            email_result_display = gr.Textbox(
+                label="📊 發送結果",
+                lines=5,
+                interactive=False
+            )
+    
+    # 事件處理函數
+    def generate_draft(prompt, recipient):
+        """生成郵件草稿"""
+        if not prompt or not prompt.strip():
+            return "❌ 請輸入郵件提示", "", "", "❌ 請輸入郵件提示"
+        
+        if not recipient or not recipient.strip():
+            return "❌ 請輸入收件人郵箱", "", "", "❌ 請輸入收件人郵箱"
+        
+        # 驗證郵箱格式（簡單驗證）
+        if "@" not in recipient or "." not in recipient.split("@")[1]:
+            return "❌ 郵箱格式不正確", "", "", "❌ 郵箱格式不正確，請輸入有效的郵箱地址"
+        
+        try:
+            status_msg = "🔄 正在生成郵件草稿..."
+            
+            # 生成郵件草稿
+            subject, body, status = generate_email_draft(prompt, recipient.strip())
+            
+            if subject and body:
+                return status, subject, body, ""
+            else:
+                return status, "", "", status
+        except Exception as e:
+            error_msg = f"❌ 發生錯誤：{str(e)}"
+            print(f"Email Tool 錯誤：{e}")
+            import traceback
+            traceback.print_exc()
+            return "❌ 發生錯誤", "", "", error_msg
+    
+    def send_draft(recipient, subject, body):
+        """發送已編輯的郵件草稿"""
+        if not recipient or not recipient.strip():
+            return "❌ 請輸入收件人郵箱", "❌ 請輸入收件人郵箱"
+        
+        if not subject or not subject.strip():
+            return "❌ 請輸入郵件主題", "❌ 請輸入郵件主題"
+        
+        if not body or not body.strip():
+            return "❌ 請輸入郵件內容", "❌ 請輸入郵件內容"
+        
+        # 驗證郵箱格式
+        if "@" not in recipient or "." not in recipient.split("@")[1]:
+            return "❌ 郵箱格式不正確", "❌ 郵箱格式不正確，請輸入有效的郵箱地址"
+        
+        try:
+            status_msg = "🔄 正在發送郵件..."
+            
+            # 發送郵件
+            result = send_email_draft(recipient.strip(), subject.strip(), body.strip())
+            
+            return "✅ 郵件已發送", result
+        except Exception as e:
+            error_msg = f"❌ 發送郵件時發生錯誤：{str(e)}"
+            print(f"Email Tool 錯誤：{e}")
+            import traceback
+            traceback.print_exc()
+            return "❌ 發生錯誤", error_msg
+    
+    def clear_email():
+        """清除郵件相關輸入和輸出"""
+        return "", "", "等待操作...", "", "", ""
+    
+    # 綁定事件
+    generate_draft_btn.click(
+        fn=generate_draft,
+        inputs=[email_prompt_input, recipient_input],
+        outputs=[email_status_display, email_subject_input, email_body_input, email_result_display]
+    )
+    
+    send_draft_btn.click(
+        fn=send_draft,
+        inputs=[recipient_input, email_subject_input, email_body_input],
+        outputs=[email_status_display, email_result_display]
+    )
+    
+    clear_email_btn.click(
+        fn=clear_email,
+        outputs=[email_prompt_input, recipient_input, email_status_display, email_subject_input, email_body_input, email_result_display]
+    )
+    
+    # 示例
+    gr.Examples(
+        examples=[
+            ["寫一封感謝信，感謝對方在項目中的幫助和支持", "example@example.com"],
+            ["邀請參加下週的產品發布會", "colleague@company.com"],
+            ["詢問項目進度並提供更新", "partner@partner.com"],
+            ["發送會議記錄和後續行動項目", "team@company.com"]
+        ],
+        inputs=[email_prompt_input, recipient_input]
+    )
+    
+    # 頁腳說明
+    gr.Markdown(
+        f"""
+        ---
+        **注意事項：**
+        1. 使用 Gmail API 發送郵件，避免被歸類為垃圾郵件
+        2. 首次使用需要在專案根目錄放置 `credentials.json`（從 Google Cloud Console 下載的 OAuth2 憑證）
+        3. 首次運行時會自動開啟瀏覽器進行授權，授權後會生成 `token.json` 文件
+        4. 郵件內容由 AI 自動生成，請在發送前檢查結果
+        5. 寄件者固定為：{EMAIL_SENDER}
+        
+        **設置步驟：**
+        - 前往 [Google Cloud Console](https://console.cloud.google.com/) 創建專案
+        - 啟用 Gmail API
+        - 創建 OAuth2 憑證並下載為 `credentials.json`
+        - 將 `credentials.json` 放在專案根目錄
+        """
+    )
 
