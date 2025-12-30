@@ -1,0 +1,157 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches: [ main, master ]
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  release:
+    types: [ published ]
+
+jobs:
+  # 部署到 Hugging Face Spaces (Gradio 应用)
+  deploy-hf-spaces:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'push'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+    
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    
+    - name: Install dependencies
+      run: |
+        uv pip install --system -e .
+    
+    - name: Create Hugging Face Space files
+      run: |
+        mkdir -p .hf_space
+        # 创建 app.py (Hugging Face Spaces 入口点)
+        cat > .hf_space/app.py << 'EOF'
+        """
+        Deep Agent RAG System - Hugging Face Spaces 部署版本
+        """
+        import gradio as gr
+        from deep_agent_rag.rag import init_rag_system
+        from deep_agent_rag.graph import build_agent_graph
+        from deep_agent_rag.ui import create_gradio_interface
+        
+        # 初始化系统
+        rag_retriever = init_rag_system()
+        graph = build_agent_graph(rag_retriever=rag_retriever)
+        demo = create_gradio_interface(graph)
+        
+        if __name__ == "__main__":
+            demo.launch()
+        EOF
+        
+        # 复制项目代码到 .hf_space
+        cp -r deep_agent_rag .hf_space/ 2>/dev/null || echo "⚠️ Could not copy deep_agent_rag directory"
+        cp pyproject.toml .hf_space/ 2>/dev/null || echo "⚠️ Could not copy pyproject.toml"
+        
+        # 创建 requirements.txt
+        uv pip compile pyproject.toml -o .hf_space/requirements.txt 2>/dev/null || \
+        uv pip list --format=freeze > .hf_space/requirements.txt || \
+        echo "# Requirements will be installed from pyproject.toml" > .hf_space/requirements.txt
+        
+        # 复制 README
+        cp README.md .hf_space/README.md 2>/dev/null || echo "# Deep Agent RAG System" > .hf_space/README.md
+        
+        # 创建 .gitignore（Hugging Face Spaces 需要）
+        echo "__pycache__/" > .hf_space/.gitignore
+        echo "*.pyc" >> .hf_space/.gitignore
+        echo ".venv/" >> .hf_space/.gitignore
+        
+        echo "✅ Space files prepared in .hf_space/"
+      continue-on-error: true
+    
+    - name: Install Hugging Face Hub
+      run: |
+        uv pip install --system huggingface_hub
+      continue-on-error: true
+    
+    - name: Deploy to Hugging Face Spaces
+      env:
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        HF_USERNAME: ${{ secrets.HF_USERNAME }}
+        HF_SPACE_NAME: ${{ secrets.HF_SPACE_NAME || 'deep-agent-rag' }}
+      run: |
+        if [ -z "$HF_TOKEN" ] || [ -z "$HF_USERNAME" ]; then
+          echo "⚠️ Hugging Face credentials not set, skipping deployment"
+          echo "💡 To enable deployment, set HF_TOKEN and HF_USERNAME secrets in GitHub"
+          exit 0
+        fi
+        
+        SPACE_ID="$HF_USERNAME/$HF_SPACE_NAME"
+        echo "🚀 Deploying to Hugging Face Space: $SPACE_ID"
+        
+        # 使用 Python 脚本部署
+        python << 'PYTHON_SCRIPT'
+        import os
+        from huggingface_hub import HfApi, create_repo
+        from pathlib import Path
+        
+        token = os.environ.get("HF_TOKEN")
+        username = os.environ.get("HF_USERNAME")
+        space_name = os.environ.get("HF_SPACE_NAME", "deep-agent-rag")
+        space_id = f"{username}/{space_name}"
+        
+        if not token or not username:
+            print("❌ Missing HF_TOKEN or HF_USERNAME")
+            exit(1)
+        
+        api = HfApi(token=token)
+        
+        # 创建 Space（如果不存在）
+        try:
+            create_repo(
+                repo_id=space_id,
+                repo_type="space",
+                space_sdk="gradio",
+                token=token,
+                exist_ok=True
+            )
+            print(f"✅ Space created/verified: {space_id}")
+        except Exception as e:
+            print(f"⚠️ Space creation check: {e}")
+            # 继续尝试上传，可能 Space 已存在
+        
+        # 上传文件
+        hf_space_dir = Path(".hf_space")
+        if not hf_space_dir.exists():
+            print("❌ .hf_space directory not found!")
+            exit(1)
+        
+        try:
+            print(f"📤 Uploading files from .hf_space/ to {space_id}...")
+            api.upload_folder(
+                folder_path=str(hf_space_dir),
+                repo_id=space_id,
+                repo_type="space",
+                token=token,
+                commit_message=f"Auto-deploy from GitHub Actions - {os.environ.get('GITHUB_SHA', 'unknown')[:7]}"
+            )
+            print(f"✅ Deployment successful!")
+            print(f"🌐 Your app is available at: https://huggingface.co/spaces/{space_id}")
+            print(f"📊 View logs at: https://huggingface.co/spaces/{space_id}/logs")
+        except Exception as e:
+            print(f"❌ Upload failed: {e}")
+            import traceback
+            traceback.print_exc()
+            exit(1)
+        PYTHON_SCRIPT
+      continue-on-error: true
+
+
