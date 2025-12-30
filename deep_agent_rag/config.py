@@ -46,3 +46,10 @@ GROQ_MAX_TOKENS = 2048
 GROQ_TEMPERATURE = 0.7
 USE_GROQ_FIRST = True  # 是否优先使用 Groq API
 
+# Email 配置 - 使用 Gmail API
+EMAIL_SENDER = "wenliangmatt@gmail.com"
+# Gmail API 配置
+GMAIL_CREDENTIALS_FILE = os.getenv("GMAIL_CREDENTIALS_FILE", "credentials.json")  # OAuth2 憑證文件
+GMAIL_TOKEN_FILE = os.getenv("GMAIL_TOKEN_FILE", "token.json")  # 儲存存取令牌的文件
+GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send']  # Gmail API 權限範圍
+
