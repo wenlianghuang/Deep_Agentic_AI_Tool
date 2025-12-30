@@ -5,7 +5,7 @@
 from langchain_core.messages import SystemMessage, AIMessage
 
 from .state import DeepAgentState
-from ..utils.llm_utils import get_llm
+from ..utils.llm_utils import get_llm, handle_groq_error
 from ..config import MAX_ITERATIONS
 
 
@@ -104,7 +104,19 @@ def research_agent_node(state: DeepAgentState, llm_with_tools=None):
             tools_list = get_tools_list()
             llm_with_tools = llm.bind_tools(tools_list)
         
-        response = llm_with_tools.invoke(context_messages)
+        try:
+            response = llm_with_tools.invoke(context_messages)
+        except Exception as e:
+            # 處理 Groq API 錯誤，如果額度用完則切換到本地模型
+            fallback_llm = handle_groq_error(e)
+            if fallback_llm:
+                print("   ⚠️ [Researcher] Groq API 額度已用完，已切換到本地 MLX 模型")
+                from ..tools import get_tools_list
+                tools_list = get_tools_list()
+                fallback_llm_with_tools = fallback_llm.bind_tools(tools_list)
+                response = fallback_llm_with_tools.invoke(context_messages)
+            else:
+                raise
         return {
             "messages": [response],
             "iteration": current_iteration + 1

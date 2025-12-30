@@ -48,21 +48,24 @@ def build_agent_graph(rag_retriever=None):
     # 獲取工具列表
     tools_list = get_tools_list(rag_retriever)
     
-    # 獲取 LLM 並綁定工具
-    llm = get_llm()
-    llm_with_tools = llm.bind_tools(tools_list)
-    
     # 創建節點函數的包裝器，傳入必要的依賴
+    # 注意：為了支持動態切換 LLM，我們在每個節點中動態獲取 LLM
     def planner_wrapper(state):
+        llm = get_llm()
         return planner_node(state, llm=llm)
     
     def researcher_wrapper(state):
+        # 動態獲取 LLM 並綁定工具，以支持運行時切換
+        llm = get_llm()
+        llm_with_tools = llm.bind_tools(tools_list)
         return research_agent_node(state, llm_with_tools=llm_with_tools)
     
     def note_taker_wrapper(state):
+        llm = get_llm()
         return note_taking_node(state, llm=llm)
     
     def reporter_wrapper(state):
+        llm = get_llm()
         return final_report_node(state, llm=llm)
     
     # 構建圖表

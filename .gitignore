@@ -10,4 +10,11 @@ wheels/
 .venv
 data/*
 
+# Environment variables
 .env
+
+# Gmail API credentials (sensitive files)
+credentials.json
+token.json
+
+*test_check*
