@@ -6,7 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 from .state import DeepAgentState
-from ..utils.llm_utils import get_llm
+from ..utils.llm_utils import get_llm, handle_groq_error
 
 
 def note_taking_node(state: DeepAgentState, llm=None):
@@ -31,7 +31,17 @@ def note_taking_node(state: DeepAgentState, llm=None):
                 "請以簡潔的條列式呈現。"
             )
             chain = summary_prompt | llm | StrOutputParser()
-            summary = chain.invoke({"content": last_msg.content})
+            try:
+                summary = chain.invoke({"content": last_msg.content})
+            except Exception as e:
+                # 處理 Groq API 錯誤，如果額度用完則切換到本地模型
+                fallback_llm = handle_groq_error(e)
+                if fallback_llm:
+                    print("   ⚠️ [NoteTaker] Groq API 額度已用完，已切換到本地 MLX 模型")
+                    chain = summary_prompt | fallback_llm | StrOutputParser()
+                    summary = chain.invoke({"content": last_msg.content})
+                else:
+                    raise
         except:
             # 如果摘要失敗，直接使用原始內容
             summary = last_msg.content[:500] + "..." if len(last_msg.content) > 500 else last_msg.content

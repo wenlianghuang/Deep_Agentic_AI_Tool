@@ -10,14 +10,15 @@ import gradio as gr
 from langchain_core.messages import HumanMessage
 
 # graph 和 rag_retriever 將從外部傳入，不在這裡導入
+from ..utils.llm_utils import get_llm_type, is_using_local_llm
 
 
-def run_research_agent(query: str, graph, thread_id: str = None) -> Iterator[Tuple[str, str, str, str]]:
+def run_research_agent(query: str, graph, thread_id: str = None) -> Iterator[Tuple[str, str, str, str, str]]:
     """
     執行研究代理並實時返回狀態（用於 Gradio 流式更新）
     
     【Gradio 整合】返回生成器，讓 Gradio 可以實時更新 UI
-    返回格式: (當前節點狀態, 任務列表, 研究筆記, 最終報告)
+    返回格式: (當前節點狀態, 任務列表, 研究筆記, 最終報告, 警告訊息)
     
     Args:
         query: 用戶輸入的研究問題
@@ -25,11 +26,22 @@ def run_research_agent(query: str, graph, thread_id: str = None) -> Iterator[Tup
         thread_id: 可選的會話 ID，用於區分不同的查詢會話
     
     Yields:
-        Tuple[str, str, str, str]: (狀態, 任務列表, 研究筆記, 報告)
+        Tuple[str, str, str, str, str]: (狀態, 任務列表, 研究筆記, 報告, 警告訊息)
     """
     if not query or not query.strip():
-        yield "❌ 請輸入問題", "", "", ""
+        yield "❌ 請輸入問題", "", "", "", ""
         return
+    
+    # 檢查 LLM 類型並生成警告訊息
+    warning_msg = ""
+    if is_using_local_llm():
+        warning_msg = "⚠️ **警告：Groq API 額度已用完，已切換到本地 MLX 模型 (Qwen2.5)**\n\n本地模型處理速度可能較慢，請耐心等待。"
+    else:
+        llm_type = get_llm_type()
+        if llm_type == "groq":
+            warning_msg = "✅ **當前使用：Groq API**"
+        else:
+            warning_msg = "ℹ️ **當前使用：本地 MLX 模型 (Qwen2.5)**"
     
     # 生成唯一的 thread_id（如果未提供）
     if not thread_id:
@@ -54,6 +66,9 @@ def run_research_agent(query: str, graph, thread_id: str = None) -> Iterator[Tup
     report_display = ""
     full_report = ""  # 儲存完整報告，用於逐步顯示
     
+    # 在開始時顯示警告訊息
+    yield current_node, tasks_display, notes_display, report_display, warning_msg
+    
     try:
         # 開始執行圖表
         events = graph.stream(
@@ -75,6 +90,16 @@ def run_research_agent(query: str, graph, thread_id: str = None) -> Iterator[Tup
                 }.get(node, "🔄")
                 
                 current_node = f"{node_emoji} 正在執行: {node}"
+                
+                # 檢查 LLM 狀態變化（可能在執行過程中切換）
+                if is_using_local_llm():
+                    warning_msg = "⚠️ **警告：Groq API 額度已用完，已切換到本地 MLX 模型 (Qwen2.5)**\n\n本地模型處理速度可能較慢，請耐心等待。"
+                else:
+                    llm_type = get_llm_type()
+                    if llm_type == "groq":
+                        warning_msg = "✅ **當前使用：Groq API**"
+                    else:
+                        warning_msg = "ℹ️ **當前使用：本地 MLX 模型 (Qwen2.5)**"
                 
                 # 更新任務列表顯示
                 if "tasks" in data:
@@ -132,7 +157,7 @@ def run_research_agent(query: str, graph, thread_id: str = None) -> Iterator[Tup
                         for i in range(0, len(full_report), chunk_size):
                             accumulated_text = full_report[:i + chunk_size]
                             report_display = accumulated_text
-                            yield current_node, tasks_display, notes_display, report_display
+                            yield current_node, tasks_display, notes_display, report_display, warning_msg
                             time.sleep(0.03)  # 每塊之間的延遲（30毫秒）
                     else:
                         # 逐步顯示每個句子
@@ -140,27 +165,30 @@ def run_research_agent(query: str, graph, thread_id: str = None) -> Iterator[Tup
                         for sentence in sentence_parts:
                             accumulated_text += sentence
                             report_display = accumulated_text
-                            yield current_node, tasks_display, notes_display, report_display
+                            yield current_node, tasks_display, notes_display, report_display, warning_msg
                             time.sleep(0.1)  # 每句之間的延遲（100毫秒）
                     
                     # 確保完整報告顯示
                     report_display = full_report
                     current_node = "✅ 報告生成完成！"
-                    yield current_node, tasks_display, notes_display, report_display
+                    yield current_node, tasks_display, notes_display, report_display, warning_msg
                     continue  # 跳過後面的 yield，避免重複
                 
                 # 實時返回狀態（讓 Gradio 更新 UI）
-                yield current_node, tasks_display, notes_display, report_display
+                yield current_node, tasks_display, notes_display, report_display, warning_msg
         
         # 最終狀態
-        yield "✅ 研究完成！", tasks_display, notes_display, report_display
+        yield "✅ 研究完成！", tasks_display, notes_display, report_display, warning_msg
         
     except Exception as e:
         error_msg = f"❌ 發生錯誤: {str(e)}"
         print(f"錯誤詳情: {e}")
         import traceback
         traceback.print_exc()
-        yield error_msg, tasks_display, notes_display, report_display
+        # 檢查是否是因為 Groq 額度問題
+        if is_using_local_llm():
+            warning_msg = "⚠️ **警告：Groq API 額度已用完，已切換到本地 MLX 模型 (Qwen2.5)**\n\n本地模型處理速度可能較慢，請耐心等待。"
+        yield error_msg, tasks_display, notes_display, report_display, warning_msg
 
 
 def create_gradio_interface(graph):
@@ -208,6 +236,12 @@ def create_gradio_interface(graph):
                     interactive=False,
                     lines=2
                 )
+                
+                # 警告訊息顯示
+                warning_display = gr.Markdown(
+                    value="",
+                    elem_classes=["warning-box"]
+                )
             
             with gr.Column(scale=1):
                 # 任務列表
@@ -237,26 +271,55 @@ def create_gradio_interface(graph):
         def process_query(query):
             """處理查詢並返回流式更新"""
             if not query or not query.strip():
-                return "❌ 請輸入問題", "", "", ""
+                return "❌ 請輸入問題", "", "", "", ""
             
             # 使用生成器函數實時更新（Gradio 6.x 支持流式輸出）
-            for status, tasks, notes, report in run_research_agent(query, graph):
-                yield status, tasks, notes, report
+            for status, tasks, notes, report, warning in run_research_agent(query, graph):
+                yield status, tasks, notes, report, warning
         
         def clear_all():
             """清除所有輸入和輸出"""
-            return "", "", "", "", "等待開始..."
+            # 檢查當前 LLM 狀態
+            warning_msg = ""
+            if is_using_local_llm():
+                warning_msg = "⚠️ **警告：Groq API 額度已用完，已切換到本地 MLX 模型 (Qwen2.5)**\n\n本地模型處理速度可能較慢，請耐心等待。"
+            else:
+                llm_type = get_llm_type()
+                if llm_type == "groq":
+                    warning_msg = "✅ **當前使用：Groq API**"
+                else:
+                    warning_msg = "ℹ️ **當前使用：本地 MLX 模型 (Qwen2.5)**"
+            return "", "", "", "", "等待開始...", warning_msg
         
         # 綁定事件
         submit_btn.click(
             fn=process_query,
             inputs=query_input,
-            outputs=[status_display, tasks_display, notes_display, report_display]
+            outputs=[status_display, tasks_display, notes_display, report_display, warning_display]
         )
         
         clear_btn.click(
             fn=clear_all,
-            outputs=[query_input, tasks_display, notes_display, report_display, status_display]
+            outputs=[query_input, tasks_display, notes_display, report_display, status_display, warning_display]
+        )
+        
+        # 初始化時顯示當前 LLM 狀態
+        def get_initial_warning():
+            warning_msg = ""
+            if is_using_local_llm():
+                warning_msg = "⚠️ **警告：Groq API 額度已用完，已切換到本地 MLX 模型 (Qwen2.5)**\n\n本地模型處理速度可能較慢，請耐心等待。"
+            else:
+                llm_type = get_llm_type()
+                if llm_type == "groq":
+                    warning_msg = "✅ **當前使用：Groq API**"
+                else:
+                    warning_msg = "ℹ️ **當前使用：本地 MLX 模型 (Qwen2.5)**"
+            return warning_msg
+        
+        # 在界面載入時顯示初始警告
+        demo.load(
+            fn=get_initial_warning,
+            outputs=[warning_display]
         )
         
         # 示例問題（快速測試）

@@ -39,3 +39,10 @@ RETRIEVER_K = 3
 MAX_ITERATIONS = 5
 MAX_RESEARCH_ITERATIONS = 20
 
+# Groq API 配置
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = "llama-3.3-70b-versatile"  # 或其他 Groq 支持的模型
+GROQ_MAX_TOKENS = 2048
+GROQ_TEMPERATURE = 0.7
+USE_GROQ_FIRST = True  # 是否优先使用 Groq API
+

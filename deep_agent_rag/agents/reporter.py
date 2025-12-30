@@ -7,7 +7,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.messages import AIMessage
 
 from .state import DeepAgentState
-from ..utils.llm_utils import get_llm
+from ..utils.llm_utils import get_llm, handle_groq_error
 
 
 def final_report_node(state: DeepAgentState, llm=None):
@@ -85,12 +85,27 @@ def final_report_node(state: DeepAgentState, llm=None):
             "如果某些部分沒有相關資料，請明確說明，不要編造資訊。"
         )
         chain = prompt | llm | StrOutputParser()
-        report = chain.invoke({
-            "query": query, 
-            "notes": all_notes,
-            "completed_tasks": "\n".join([f"- {task}" for task in completed_tasks]),
-            "report_structure": report_structure
-        })
+        try:
+            report = chain.invoke({
+                "query": query, 
+                "notes": all_notes,
+                "completed_tasks": "\n".join([f"- {task}" for task in completed_tasks]),
+                "report_structure": report_structure
+            })
+        except Exception as e:
+            # 處理 Groq API 錯誤，如果額度用完則切換到本地模型
+            fallback_llm = handle_groq_error(e)
+            if fallback_llm:
+                print("   ⚠️ [FinalReport] Groq API 額度已用完，已切換到本地 MLX 模型")
+                chain = prompt | fallback_llm | StrOutputParser()
+                report = chain.invoke({
+                    "query": query, 
+                    "notes": all_notes,
+                    "completed_tasks": "\n".join([f"- {task}" for task in completed_tasks]),
+                    "report_structure": report_structure
+                })
+            else:
+                raise
         print(f"   📊 [FinalReport] 報告生成完成（問題類型：學術={is_academic_related}, 股票={is_stock_related}）")
         return {"messages": [AIMessage(content=report)]}
     except Exception as e:

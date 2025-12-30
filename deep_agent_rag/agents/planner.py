@@ -7,7 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 from .state import DeepAgentState
-from ..utils.llm_utils import get_llm
+from ..utils.llm_utils import get_llm, handle_groq_error
 
 
 def planner_node(state: DeepAgentState, llm=None):
@@ -83,7 +83,17 @@ def planner_node(state: DeepAgentState, llm=None):
         
         prompt = ChatPromptTemplate.from_template(prompt_template)
         chain = prompt | llm | StrOutputParser()
-        result = chain.invoke({"query": query})
+        try:
+            result = chain.invoke({"query": query})
+        except Exception as e:
+            # 處理 Groq API 錯誤，如果額度用完則切換到本地模型
+            fallback_llm = handle_groq_error(e)
+            if fallback_llm:
+                print("   ⚠️ [Planner] Groq API 額度已用完，已切換到本地 MLX 模型")
+                chain = prompt | fallback_llm | StrOutputParser()
+                result = chain.invoke({"query": query})
+            else:
+                raise
         
         # 更健壯的任務解析：提取數字開頭或列表項
         tasks = []
