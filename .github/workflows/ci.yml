@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.13"]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+    
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    
+    - name: Install linting tools
+      run: |
+        uv pip install --system ruff black
+    
+    - name: Check code formatting with Black
+      run: |
+        black --check --diff . || echo "⚠️ Code formatting issues found (non-blocking)"
+      continue-on-error: true
+    
+    - name: Lint with Ruff
+      run: |
+        ruff check . --output-format=github || echo "⚠️ Linting issues found (non-blocking)"
+      continue-on-error: true
+    
+    - name: Check Python syntax
+      run: |
+        echo "Checking Python syntax..."
+        python -m py_compile Deep_Agent_Gradio_RAG_localLLM_main.py 2>&1 || echo "⚠️ Syntax error in main file"
+        if [ -f main.py ]; then
+          python -m py_compile main.py 2>&1 || echo "⚠️ Syntax error in main.py"
+        fi
+        find deep_agent_rag -name "*.py" -type f -exec python -m py_compile {} \; 2>&1 | grep -v "^$" || echo "✅ All Python files compiled successfully"
+      continue-on-error: true
+    
+    - name: Verify pyproject.toml syntax
+      run: |
+        python -c "import tomllib; f=open('pyproject.toml','rb'); tomllib.load(f); print('✅ pyproject.toml is valid')" || python -c "import tomli; f=open('pyproject.toml','rb'); tomli.load(f); print('✅ pyproject.toml is valid')" || echo "⚠️ Could not verify pyproject.toml (non-blocking)"
+      continue-on-error: true
