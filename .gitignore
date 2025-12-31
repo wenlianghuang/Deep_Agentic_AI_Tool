@@ -14,7 +14,8 @@ data/*
 .env
 
 # Gmail API credentials (sensitive files)
-credentials.json
+credentials*.json
 token.json
 
 *test_check*
+.DS_Store
