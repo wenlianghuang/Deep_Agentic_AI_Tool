@@ -273,6 +273,7 @@ Deep_Agentic_AI_Tool/
 
 - **[功能詳述](FEATURES.md)** - 所有功能的詳細說明與使用範例
 - **[系統架構](ARCHITECTURE.md)** - 系統架構、工作流程與開發指南
+- **[架構分離說明](ARCHITECTURE_SEPARATION.md)** - 深度研究代理與 Email/Calendar 工具的架構分離設計
 - **[配置指南](CONFIGURATION.md)** - 完整的配置選項說明
 - **[Gmail API 設置](GMAIL_API_SETUP.md)** - Gmail API 設置步驟
 - **[Google Maps 整合](GOOGLE_MAPS_INTEGRATION.md)** - Google Maps API 整合說明
