@@ -11,6 +11,7 @@ from ..utils.llm_utils import get_llm, handle_groq_error
 from ..tools.calendar_tool import create_calendar_event, update_calendar_event, delete_calendar_event
 from .calendar_reflection_agent import reflect_on_calendar_event, generate_improved_calendar_event
 from ..config import MAX_EMAIL_REFLECTION_ITERATIONS
+from ..tools.googlemaps_tool import enrich_location_info
 
 
 def detect_language(text: str) -> str:
@@ -238,17 +239,53 @@ def generate_calendar_draft(
         
         start_datetime, end_datetime = parse_datetime(date_str, time_str)
         
+        # 【Google Maps 整合】驗證並豐富地點資訊
+        location = event_data.get("location", "").strip()
+        location_info = None
+        location_suggestion = ""
+        
+        if location:
+            try:
+                # 將 start_datetime 轉換為 datetime 對象用於計算交通時間
+                from datetime import datetime as dt
+                try:
+                    event_dt = dt.fromisoformat(start_datetime.replace('+08:00', ''))
+                except:
+                    event_dt = None
+                
+                # 豐富地點資訊（驗證地址、計算交通時間）
+                location_info = enrich_location_info(location, event_dt)
+                
+                # 如果地址驗證成功，使用標準化地址
+                if location_info.get("validated"):
+                    location = location_info.get("standardized_address", location)
+                    location_suggestion = location_info.get("suggestion", "")
+                    print(f"   🗺️ [GoogleMaps] 地點已驗證並標準化：{location}")
+                    if location_info.get("travel_time_info"):
+                        travel_info = location_info["travel_time_info"]
+                        print(f"   🗺️ [GoogleMaps] 交通時間：{travel_info.get('duration_text', 'N/A')}")
+                else:
+                    # 地址驗證失敗，保留原始地址但記錄警告
+                    location_suggestion = location_info.get("suggestion", "")
+                    print(f"   ⚠️ [GoogleMaps] 地點驗證失敗：{location_suggestion}")
+            except Exception as e:
+                # Google Maps API 調用失敗，不影響事件創建，只記錄警告
+                print(f"   ⚠️ [GoogleMaps] 地點資訊豐富化失敗：{e}，將使用原始地址")
+                location_suggestion = f"⚠️ 無法驗證地址（{str(e)}），將使用原始地址"
+        
         # 構建事件字典
         event_dict = {
             "summary": event_data.get("summary", "新事件"),
             "start_datetime": start_datetime,
             "end_datetime": end_datetime,
             "description": event_data.get("description", ""),
-            "location": event_data.get("location", ""),
+            "location": location,  # 使用標準化後的地址（如果驗證成功）
             "attendees": event_data.get("attendees", ""),
             "timezone": "Asia/Taipei",
             "date": date_str,  # 保留原始日期字串
-            "time": time_str if time_str else ""  # 保留原始時間字串
+            "time": time_str if time_str else "",  # 保留原始時間字串
+            "location_info": location_info,  # 保存完整的地點資訊（用於 UI 顯示）
+            "location_suggestion": location_suggestion  # 保存地點建議訊息
         }
         
         # 【迭代反思功能】不斷反思直到滿意為止
@@ -389,18 +426,17 @@ def generate_calendar_draft(
                 print(f"   ⚠️ [CalendarReflection] 反思過程發生錯誤: {e}")
                 reflection_result = f"反思過程發生錯誤：{str(e)}"
                 # 使用原始狀態消息
-                if missing_info:
-                    missing_items = []
-                    if missing_info.get("date"):
-                        missing_items.append("日期")
-                    if missing_info.get("time"):
-                        missing_items.append("時間")
-                    status_message = f"✅ 行事曆事件草稿已生成，請補充以下資訊：{', '.join(missing_items)}"
-                else:
-                    status_message = "✅ 行事曆事件草稿已生成，請檢查並修改後再創建"
-        
-        # 如果未啟用反思功能，使用原始邏輯
-        if not enable_reflection:
+        if missing_info:
+            missing_items = []
+            if missing_info.get("date"):
+                missing_items.append("日期")
+            if missing_info.get("time"):
+                missing_items.append("時間")
+                status_message = f"✅ 行事曆事件草稿已生成，請補充以下資訊：{', '.join(missing_items)}"
+            else:
+                status_message = "✅ 行事曆事件草稿已生成，請檢查並修改後再創建"
+        else:
+            # 未啟用反思功能，使用原始邏輯
             if missing_info:
                 missing_items = []
                 if missing_info.get("date"):

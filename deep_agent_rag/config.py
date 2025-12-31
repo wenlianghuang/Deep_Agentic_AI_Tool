@@ -64,3 +64,8 @@ CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar']  # Calendar API �
 # Google Maps API 配置
 NORMAL_GOOGLE_MAPS_API_KEY = os.getenv("NORMAL_GOOGLE_MAPS_API_KEY", "")
 
+# 用戶常用位置配置（用於計算交通時間）
+# 設置您的家庭地址或辦公室地址，系統會自動計算從這些位置到事件地點的交通時間
+USER_HOME_ADDRESS = os.getenv("USER_HOME_ADDRESS", "")  # 例如："台北市信義區信義路五段7號"
+USER_OFFICE_ADDRESS = os.getenv("USER_OFFICE_ADDRESS", "")  # 例如："台北市大安區敦化南路二段216號"
+

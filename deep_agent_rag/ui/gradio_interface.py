@@ -625,21 +625,33 @@ def _create_calendar_interface():
         使用 AI 根據您的完整提示自動生成行事曆事件草稿，您可以在創建前檢查和修改。
         
         **使用方式：**
-        1. 在下方輸入完整的事件提示，包含：事件、日期、時間、地點、參與者
-           （例如："明天下午2點團隊會議，討論項目進度，地點在會議室A，參與者包括john@example.com"）
-        2. 點擊「生成事件草稿」按鈕
+        1. **快速選擇**：點擊下方常見事件按鈕，自動生成草稿
+        2. **自定義輸入**：在下方輸入完整的事件提示，包含：事件、日期、時間、地點、參與者
         3. 查看 AI 反思評估結果和改進建議（如有）
         4. 如果有缺失的資訊（如時間），系統會顯示下拉選單讓您選擇
         5. 檢查並修改生成的事件內容
         6. 確認無誤後點擊「創建事件」按鈕
         
-        **✨ 新功能：AI 迭代反思評估**
+        **✨ 新功能：AI 迭代反思評估 + Google Maps 地點驗證**
         - 系統會自動進行多輪反思評估（最多 3 輪）
+        - 自動驗證並標準化地址，計算交通時間
         - 每輪評估後，如果有改進建議，會自動生成改進版本
         - 改進後的版本會再次評估，直到 AI 認為滿意為止
-        - 您可以看到完整的反思過程和每輪的改進建議
         """
     )
+    
+    # 快速選擇按鈕區域
+    gr.Markdown("### 🚀 快速選擇常見事件")
+    with gr.Row():
+        quick_meeting_btn = gr.Button("📋 團隊會議", variant="secondary", scale=1)
+        quick_client_btn = gr.Button("🤝 客戶拜訪", variant="secondary", scale=1)
+        quick_lunch_btn = gr.Button("🍽️ 午餐會議", variant="secondary", scale=1)
+        quick_oneonone_btn = gr.Button("💬 一對一會議", variant="secondary", scale=1)
+    with gr.Row():
+        quick_project_btn = gr.Button("📊 項目討論", variant="secondary", scale=1)
+        quick_training_btn = gr.Button("🎓 培訓/學習", variant="secondary", scale=1)
+        quick_social_btn = gr.Button("🎉 社交活動", variant="secondary", scale=1)
+        quick_custom_btn = gr.Button("✏️ 自定義輸入", variant="secondary", scale=1)
     
     with gr.Row():
         with gr.Column(scale=1):
@@ -730,9 +742,9 @@ def _create_calendar_interface():
             )
             
             event_location_display = gr.Textbox(
-                label="📍 地點（可編輯）",
+                label="📍 地點（可編輯，已自動驗證並標準化）",
                 placeholder="事件地點將在這裡顯示，您可以編輯",
-                lines=1,
+                lines=2,
                 interactive=True
             )
             
@@ -781,6 +793,97 @@ def _create_calendar_interface():
             dates.append(date_str)
         
         return dates
+    
+    # 快速選擇事件模板生成函數
+    def generate_quick_prompt(event_type: str) -> str:
+        """根據事件類型生成預設提示"""
+        from datetime import datetime, timedelta
+        
+        # 獲取明天的日期
+        tomorrow = datetime.now() + timedelta(days=1)
+        tomorrow_str = tomorrow.strftime("%Y-%m-%d")
+        
+        templates = {
+            "meeting": f"明天下午2點團隊會議，討論項目進度和下週計劃，地點在會議室，參與者包括團隊成員",
+            "client": f"明天上午10點客戶拜訪，討論合作方案和需求，地點在客戶公司或會議室",
+            "lunch": f"明天中午12點午餐會議，與合作夥伴討論業務合作，地點在附近的餐廳",
+            "oneonone": f"明天下午3點一對一會議，討論工作進展和職業發展，地點在會議室或咖啡廳",
+            "project": f"明天上午9點項目討論會議，審查項目進度和解決問題，地點在項目室，參與者包括項目團隊",
+            "training": f"明天下午2點培訓課程，學習新技能和最佳實踐，地點在培訓室或線上",
+            "social": f"明天晚上6點團隊聚餐，慶祝項目完成，地點在餐廳，參與者包括團隊成員",
+            "custom": ""  # 自定義，返回空讓用戶輸入
+        }
+        
+        return templates.get(event_type, "")
+    
+    # 快速選擇按鈕處理函數（自動生成草稿）
+    def quick_select_and_generate(event_type: str):
+        """快速選擇事件類型並自動生成草稿"""
+        prompt = generate_quick_prompt(event_type)
+        if not prompt:
+            # 如果是自定義，只返回空提示，不自動生成
+            return (
+                prompt,  # calendar_prompt_input
+                "請在下方輸入框中輸入事件提示，然後點擊「生成事件草稿」",  # calendar_status_display
+                "等待輸入...",  # calendar_reflection_display
+                gr.update(visible=False),  # missing_info_group
+                gr.update(visible=False, choices=[]),  # missing_date_display
+                gr.update(visible=False, choices=[]),  # missing_time_display
+                gr.update(visible=False),  # fill_missing_btn
+                "", "", "", "", "", "",  # event fields
+                {},  # event_dict_storage
+                ""  # calendar_result_display
+            )
+        
+        # 自動生成草稿（調用 generate_draft 並返回所有輸出）
+        draft_result = generate_draft(prompt)
+        # generate_draft 返回的格式是：(status, reflection_display, missing_info_group, ...)
+        # 但我們需要返回 (prompt, status, reflection_display, ...)
+        # draft_result 是一個元組，我們需要將 prompt 添加到開頭
+        return (prompt,) + draft_result
+    
+    def quick_select_meeting():
+        """快速選擇：團隊會議"""
+        return quick_select_and_generate("meeting")
+    
+    def quick_select_client():
+        """快速選擇：客戶拜訪"""
+        return quick_select_and_generate("client")
+    
+    def quick_select_lunch():
+        """快速選擇：午餐會議"""
+        return quick_select_and_generate("lunch")
+    
+    def quick_select_oneonone():
+        """快速選擇：一對一會議"""
+        return quick_select_and_generate("oneonone")
+    
+    def quick_select_project():
+        """快速選擇：項目討論"""
+        return quick_select_and_generate("project")
+    
+    def quick_select_training():
+        """快速選擇：培訓/學習"""
+        return quick_select_and_generate("training")
+    
+    def quick_select_social():
+        """快速選擇：社交活動"""
+        return quick_select_and_generate("social")
+    
+    def quick_select_custom():
+        """快速選擇：自定義輸入（只清空，不自動生成）"""
+        return (
+            "",  # calendar_prompt_input
+            "請在下方輸入框中輸入事件提示，然後點擊「生成事件草稿」",  # calendar_status_display
+            "等待輸入...",  # calendar_reflection_display
+            gr.update(visible=False),  # missing_info_group
+            gr.update(visible=False, choices=[]),  # missing_date_display
+            gr.update(visible=False, choices=[]),  # missing_time_display
+            gr.update(visible=False),  # fill_missing_btn
+            "", "", "", "", "", "",  # event fields
+            {},  # event_dict_storage
+            ""  # calendar_result_display
+        )
     
     # 事件處理函數
     def generate_draft(prompt):
@@ -842,6 +945,15 @@ def _create_calendar_interface():
                     )
             else:
                 reflection_display = "⚠️ 反思功能未返回結果"
+            
+            # 【Google Maps 整合】添加地點建議訊息
+            location_suggestion = event_dict.get("location_suggestion", "")
+            if location_suggestion:
+                # 將地點建議添加到狀態訊息中
+                if status:
+                    status = f"{status}\n\n🗺️ **地點資訊：**\n{location_suggestion}"
+                else:
+                    status = f"🗺️ **地點資訊：**\n{location_suggestion}"
             
             # 檢查是否有缺失資訊
             has_missing = bool(missing_info)
@@ -996,6 +1108,7 @@ def _create_calendar_interface():
         return (
             "",  # prompt
             "等待操作...",  # status
+            "等待生成事件...",  # reflection_display
             gr.update(visible=False),  # missing_info_group
             gr.update(visible=False, choices=[]),  # missing_date
             gr.update(visible=False, choices=[]),  # missing_time
@@ -1011,6 +1124,7 @@ def _create_calendar_interface():
         inputs=[calendar_prompt_input],
         outputs=[
             calendar_status_display,
+            calendar_reflection_display,
             missing_info_group,
             missing_date_display,
             missing_time_display,
@@ -1025,6 +1139,34 @@ def _create_calendar_interface():
             calendar_result_display
         ]
     )
+    
+    # 綁定快速選擇按鈕（自動填充提示並生成草稿）
+    quick_outputs = [
+        calendar_prompt_input,  # 更新提示輸入框
+        calendar_status_display,
+        calendar_reflection_display,
+        missing_info_group,
+        missing_date_display,
+        missing_time_display,
+        fill_missing_btn,
+        event_summary_display,
+        event_start_display,
+        event_end_display,
+        event_description_display,
+        event_location_display,
+        event_attendees_display,
+        event_dict_storage,
+        calendar_result_display
+    ]
+    
+    quick_meeting_btn.click(fn=quick_select_meeting, outputs=quick_outputs)
+    quick_client_btn.click(fn=quick_select_client, outputs=quick_outputs)
+    quick_lunch_btn.click(fn=quick_select_lunch, outputs=quick_outputs)
+    quick_oneonone_btn.click(fn=quick_select_oneonone, outputs=quick_outputs)
+    quick_project_btn.click(fn=quick_select_project, outputs=quick_outputs)
+    quick_training_btn.click(fn=quick_select_training, outputs=quick_outputs)
+    quick_social_btn.click(fn=quick_select_social, outputs=quick_outputs)
+    quick_custom_btn.click(fn=quick_select_custom, outputs=quick_outputs)
     
     fill_missing_btn.click(
         fn=fill_missing_info,
