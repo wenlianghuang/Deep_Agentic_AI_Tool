@@ -9,6 +9,8 @@ from langchain_core.output_parsers import StrOutputParser
 
 from ..utils.llm_utils import get_llm, handle_groq_error
 from ..tools.calendar_tool import create_calendar_event, update_calendar_event, delete_calendar_event
+from .calendar_reflection_agent import reflect_on_calendar_event, generate_improved_calendar_event
+from ..config import MAX_EMAIL_REFLECTION_ITERATIONS
 
 
 def detect_language(text: str) -> str:
@@ -100,19 +102,23 @@ def parse_datetime(date_str: str, time_str: str = None) -> tuple[str, str]:
 
 
 def generate_calendar_draft(
-    prompt: str
-) -> tuple[dict, str, dict]:
+    prompt: str,
+    enable_reflection: bool = True
+) -> tuple[dict, str, dict, str, bool]:
     """
-    根據用戶提示生成行事曆事件草稿（不創建）
+    根據用戶提示生成行事曆事件草稿（不創建），並進行迭代反思評估
     從單一 prompt 中提取所有資訊：事件、日期、時間、地點、參與者
     
     Args:
         prompt: 完整的用戶提示（例如："明天下午2點團隊會議，討論項目進度，地點在會議室A，參與者包括john@example.com和mary@example.com"）
+        enable_reflection: 是否啟用反思功能（默認 True）
     
     Returns:
-        (event_dict, status_message, missing_info) 元組
+        (event_dict, status_message, missing_info, reflection_result, was_improved) 元組
         event_dict 包含: summary, start_datetime, end_datetime, description, location, attendees
         missing_info 包含缺失的資訊標記，用於 UI 顯示下拉選單
+        reflection_result: 反思結果（如果啟用反思）
+        was_improved: 是否經過改進（如果啟用反思）
     """
     try:
         # 檢測用戶輸入的語言
@@ -245,25 +251,173 @@ def generate_calendar_draft(
             "time": time_str if time_str else ""  # 保留原始時間字串
         }
         
-        status_message = "✅ 行事曆事件草稿已生成"
+        # 【迭代反思功能】不斷反思直到滿意為止
+        reflection_result = ""
+        was_improved = False
+        all_reflections = []  # 記錄所有反思結果
+        
+        if enable_reflection:
+            try:
+                current_event_dict = event_dict.copy()
+                current_iteration = 0
+                
+                # 迭代反思循環：最多進行 MAX_EMAIL_REFLECTION_ITERATIONS 輪
+                while current_iteration < MAX_EMAIL_REFLECTION_ITERATIONS:
+                    try:
+                        print(f"   🔍 [CalendarReflection] 第 {current_iteration + 1} 輪反思評估...")
+                        reflection_text, improvement_suggestions, needs_revision = reflect_on_calendar_event(
+                            prompt, current_event_dict
+                        )
+                        
+                        # 記錄本輪反思結果
+                        all_reflections.append({
+                            "iteration": current_iteration + 1,
+                            "reflection": reflection_text,
+                            "suggestions": improvement_suggestions,
+                            "needs_revision": needs_revision
+                        })
+                        
+                        # 檢查是否有改進建議
+                        has_meaningful_suggestions = (
+                            improvement_suggestions and 
+                            improvement_suggestions.strip() and 
+                            len(improvement_suggestions.strip()) > 20  # 至少要有一定長度的建議
+                        )
+                        
+                        if has_meaningful_suggestions:
+                            print(f"   🔄 [CalendarReflection] 第 {current_iteration + 1} 輪：檢測到改進建議，正在生成改進版本...")
+                            try:
+                                improved_event_dict = generate_improved_calendar_event(
+                                    prompt, current_event_dict, improvement_suggestions
+                                )
+                                
+                                # 對改進後的版本再次進行反思評估
+                                if current_iteration < MAX_EMAIL_REFLECTION_ITERATIONS - 1:  # 如果不是最後一輪
+                                    print(f"   🔍 [CalendarReflection] 評估改進後的版本...")
+                                    next_reflection_text, next_suggestions, next_needs_revision = reflect_on_calendar_event(
+                                        prompt, improved_event_dict
+                                    )
+                                    
+                                    # 檢查改進後的版本是否滿意
+                                    has_next_suggestions = (
+                                        next_suggestions and 
+                                        next_suggestions.strip() and 
+                                        len(next_suggestions.strip()) > 20
+                                    )
+                                    
+                                    if not has_next_suggestions:
+                                        # 改進後的版本沒有新的改進建議，說明已經滿意
+                                        print(f"   ✅ [CalendarReflection] 第 {current_iteration + 1} 輪改進後，AI 認為質量已達標")
+                                        current_event_dict = improved_event_dict
+                                        was_improved = True
+                                        all_reflections.append({
+                                            "iteration": current_iteration + 1,
+                                            "reflection": next_reflection_text,
+                                            "suggestions": "無，質量已達標",
+                                            "needs_revision": False
+                                        })
+                                        break  # 滿意了，退出循環
+                                    else:
+                                        # 還有改進空間，繼續下一輪
+                                        print(f"   🔄 [CalendarReflection] 第 {current_iteration + 1} 輪改進後仍有改進空間，繼續反思...")
+                                        current_event_dict = improved_event_dict
+                                        was_improved = True
+                                        current_iteration += 1
+                                        continue
+                                else:
+                                    # 最後一輪，直接使用改進版本
+                                    print(f"   ✅ [CalendarReflection] 已達最大反思次數，使用最終改進版本")
+                                    current_event_dict = improved_event_dict
+                                    was_improved = True
+                                    break
+                                    
+                            except Exception as e:
+                                print(f"   ⚠️ [CalendarReflection] 生成改進版本失敗: {e}")
+                                break
+                        else:
+                            # 沒有改進建議，說明已經滿意
+                            print(f"   ✅ [CalendarReflection] 第 {current_iteration + 1} 輪：事件質量已達標，無需改進")
+                            break
+                            
+                    except Exception as e:
+                        print(f"   ⚠️ [CalendarReflection] 第 {current_iteration + 1} 輪反思過程發生錯誤: {e}")
+                        break
+                
+                # 使用最終版本
+                event_dict = current_event_dict
+                
+                # 重新檢查缺失的資訊（因為改進後可能改變了日期時間）
+                missing_info = {}
+                if not event_dict.get("date") or not event_dict.get("date").strip():
+                    missing_info["date"] = True
+                if not event_dict.get("time") or not event_dict.get("time").strip():
+                    missing_info["time"] = True
+                
+                # 合併所有反思結果
+                if all_reflections:
+                    reflection_parts = []
+                    for r in all_reflections:
+                        iteration_num = r['iteration']
+                        reflection_parts.append(f"【第 {iteration_num} 輪反思評估】\n{r['reflection']}")
+                        if r.get('suggestions') and r['suggestions'] != "無，質量已達標":
+                            reflection_parts.append(f"\n【改進建議】\n{r['suggestions']}")
+                    
+                    reflection_result = "\n\n".join(reflection_parts)
+                else:
+                    reflection_result = "反思過程未產生結果"
+                
+                # 生成狀態消息
+                if missing_info:
+                    missing_items = []
+                    if missing_info.get("date"):
+                        missing_items.append("日期")
+                    if missing_info.get("time"):
+                        missing_items.append("時間")
+                    if was_improved:
+                        total_iterations = len([r for r in all_reflections if r.get('suggestions') and r['suggestions'] != "無，質量已達標"])
+                        status_message = f"✅ 行事曆事件草稿已生成並經過 {total_iterations} 輪 AI 反思優化，請補充以下資訊：{', '.join(missing_items)}"
+                    else:
+                        status_message = f"✅ 行事曆事件草稿已生成（AI 反思評估：質量良好），請補充以下資訊：{', '.join(missing_items)}"
+                else:
+                    if was_improved:
+                        total_iterations = len([r for r in all_reflections if r.get('suggestions') and r['suggestions'] != "無，質量已達標"])
+                        status_message = f"✅ 行事曆事件草稿已生成並經過 {total_iterations} 輪 AI 反思優化，請檢查並修改後再創建"
+                    else:
+                        status_message = "✅ 行事曆事件草稿已生成（AI 反思評估：質量良好），請檢查並修改後再創建"
+                    
+            except Exception as e:
+                print(f"   ⚠️ [CalendarReflection] 反思過程發生錯誤: {e}")
+                reflection_result = f"反思過程發生錯誤：{str(e)}"
+                # 使用原始狀態消息
         if missing_info:
             missing_items = []
             if missing_info.get("date"):
                 missing_items.append("日期")
             if missing_info.get("time"):
                 missing_items.append("時間")
-            status_message += f"，請補充以下資訊：{', '.join(missing_items)}"
+                    status_message = f"✅ 行事曆事件草稿已生成，請補充以下資訊：{', '.join(missing_items)}"
+                else:
+                    status_message = "✅ 行事曆事件草稿已生成，請檢查並修改後再創建"
         else:
-            status_message += "，請檢查並修改後再創建"
+            # 未啟用反思功能，使用原始邏輯
+            if missing_info:
+                missing_items = []
+                if missing_info.get("date"):
+                    missing_items.append("日期")
+                if missing_info.get("time"):
+                    missing_items.append("時間")
+                status_message = f"✅ 行事曆事件草稿已生成，請補充以下資訊：{', '.join(missing_items)}"
+            else:
+                status_message = "✅ 行事曆事件草稿已生成，請檢查並修改後再創建"
         
-        return event_dict, status_message, missing_info
+        return event_dict, status_message, missing_info, reflection_result, was_improved
         
     except Exception as e:
         error_msg = f"❌ 生成行事曆事件草稿時發生錯誤：{str(e)}"
         print(f"Calendar Agent 錯誤：{e}")
         import traceback
         traceback.print_exc()
-        return {}, error_msg, {}
+        return {}, error_msg, {}, "", False
 
 
 def create_calendar_draft(event_dict: dict) -> str:

@@ -628,9 +628,16 @@ def _create_calendar_interface():
         1. 在下方輸入完整的事件提示，包含：事件、日期、時間、地點、參與者
            （例如："明天下午2點團隊會議，討論項目進度，地點在會議室A，參與者包括john@example.com"）
         2. 點擊「生成事件草稿」按鈕
-        3. 如果有缺失的資訊（如時間），系統會顯示下拉選單讓您選擇
-        4. 檢查並修改生成的事件內容
-        5. 確認無誤後點擊「創建事件」按鈕
+        3. 查看 AI 反思評估結果和改進建議（如有）
+        4. 如果有缺失的資訊（如時間），系統會顯示下拉選單讓您選擇
+        5. 檢查並修改生成的事件內容
+        6. 確認無誤後點擊「創建事件」按鈕
+        
+        **✨ 新功能：AI 迭代反思評估**
+        - 系統會自動進行多輪反思評估（最多 3 輪）
+        - 每輪評估後，如果有改進建議，會自動生成改進版本
+        - 改進後的版本會再次評估，直到 AI 認為滿意為止
+        - 您可以看到完整的反思過程和每輪的改進建議
         """
     )
     
@@ -655,6 +662,15 @@ def _create_calendar_interface():
                 value="等待操作...",
                 interactive=False,
                 lines=2
+            )
+            
+            # 反思結果顯示
+            calendar_reflection_display = gr.Textbox(
+                label="🔍 AI 反思評估",
+                value="等待生成事件...",
+                interactive=False,
+                lines=8,
+                visible=True
             )
             
             # 缺失資訊的補充區域（動態顯示）
@@ -768,23 +784,26 @@ def _create_calendar_interface():
     
     # 事件處理函數
     def generate_draft(prompt):
-        """生成行事曆事件草稿"""
+        """生成行事曆事件草稿（包含反思功能）"""
         if not prompt or not prompt.strip():
             return (
+                "❌ 請輸入事件提示",
                 "❌ 請輸入事件提示",
                 gr.update(visible=False),
                 gr.update(visible=False, choices=[]),
                 gr.update(visible=False, choices=[]),
                 gr.update(visible=False),
-                "", "", "", "", "", "", "",
+                "", "", "", "", "", "", {},
                 "❌ 請輸入事件提示"
             )
         
         try:
             status_msg = "🔄 正在生成事件草稿..."
             
-            # 生成事件草稿
-            event_dict, status, missing_info = generate_calendar_draft(prompt.strip())
+            # 生成事件草稿（包含反思功能）
+            event_dict, status, missing_info, reflection_result, was_improved = generate_calendar_draft(
+                prompt.strip(), enable_reflection=True
+            )
             
             if not event_dict:
                 return (
@@ -796,6 +815,33 @@ def _create_calendar_interface():
                     "", "", "", "", "", "", "",
                     status
                 )
+            
+            # 格式化反思結果顯示
+            if reflection_result:
+                # 計算反思輪數
+                reflection_count = reflection_result.count("【第") if "【第" in reflection_result else 0
+                
+                if was_improved:
+                    if reflection_count > 1:
+                        reflection_display = (
+                            f"🔍 **AI 迭代反思評估結果**（共 {reflection_count} 輪）\n\n"
+                            f"{reflection_result}\n\n"
+                            f"✨ **已自動應用改進建議，經過 {reflection_count} 輪優化，當前顯示的是最終優化版本**"
+                        )
+                    else:
+                        reflection_display = (
+                            f"🔍 **AI 反思評估結果**\n\n"
+                            f"{reflection_result}\n\n"
+                            f"✨ **已自動應用改進建議，當前顯示的是優化後的版本**"
+                        )
+                else:
+                    reflection_display = (
+                        f"🔍 **AI 反思評估結果**\n\n"
+                        f"{reflection_result}\n\n"
+                        f"✅ **事件質量良好，無需改進**"
+                    )
+            else:
+                reflection_display = "⚠️ 反思功能未返回結果"
             
             # 檢查是否有缺失資訊
             has_missing = bool(missing_info)
@@ -810,6 +856,7 @@ def _create_calendar_interface():
                 
                 return (
                     status,
+                    reflection_display,
                     gr.update(visible=True),  # 顯示缺失資訊區域
                     gr.update(visible=date_visible, choices=date_choices, value=date_choices[0] if date_choices else None),
                     gr.update(visible=time_visible, choices=time_choices, value=time_choices[0] if time_choices else None),
@@ -827,6 +874,7 @@ def _create_calendar_interface():
                 # 沒有缺失資訊，直接顯示結果
                 return (
                     status,
+                    reflection_display,
                     gr.update(visible=False),
                     gr.update(visible=False, choices=[]),
                     gr.update(visible=False, choices=[]),
@@ -847,6 +895,7 @@ def _create_calendar_interface():
             traceback.print_exc()
             return (
                 "❌ 發生錯誤",
+                f"❌ 發生錯誤：{str(e)}",
                 gr.update(visible=False),
                 gr.update(visible=False, choices=[]),
                 gr.update(visible=False, choices=[]),
@@ -1014,6 +1063,7 @@ def _create_calendar_interface():
         outputs=[
             calendar_prompt_input,
             calendar_status_display,
+            calendar_reflection_display,
             missing_info_group,
             missing_date_display,
             missing_time_display,
