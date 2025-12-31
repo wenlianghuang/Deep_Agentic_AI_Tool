@@ -15,7 +15,8 @@ from ..config import (
     EMAIL_SENDER,
     GMAIL_CREDENTIALS_FILE,
     GMAIL_TOKEN_FILE,
-    GMAIL_SCOPES
+    GMAIL_SCOPES,
+    CALENDAR_SCOPES
 )
 
 
@@ -48,10 +49,14 @@ def get_gmail_service():
     """
     creds = None
     
+    # 合併 Gmail 和 Calendar 的 scopes（因為共用同一個 token.json）
+    # 使用 set 去重，確保 scopes 唯一
+    combined_scopes = list(set(GMAIL_SCOPES + CALENDAR_SCOPES))
+    
     # 檢查是否存在 token.json（儲存使用者的存取令牌）
     if os.path.exists(GMAIL_TOKEN_FILE):
         try:
-            creds = Credentials.from_authorized_user_file(GMAIL_TOKEN_FILE, GMAIL_SCOPES)
+            creds = Credentials.from_authorized_user_file(GMAIL_TOKEN_FILE, combined_scopes)
         except Exception as e:
             print(f"⚠️ 讀取 token.json 時發生錯誤：{e}")
             creds = None
@@ -74,13 +79,16 @@ def get_gmail_service():
                     "請從 Google Cloud Console 下載 OAuth2 憑證文件並命名為 credentials.json。"
                 )
             
-            flow = InstalledAppFlow.from_client_secrets_file(GMAIL_CREDENTIALS_FILE, GMAIL_SCOPES)
+            # 使用合併的 scopes 進行授權，這樣 token.json 會包含兩個權限
+            print(f"🔐 [Gmail] 正在請求授權，權限範圍：{combined_scopes}")
+            flow = InstalledAppFlow.from_client_secrets_file(GMAIL_CREDENTIALS_FILE, combined_scopes)
             creds = flow.run_local_server(port=0)
         
         # 儲存憑證以供下次使用
         try:
             with open(GMAIL_TOKEN_FILE, 'w') as token:
                 token.write(creds.to_json())
+            print(f"✅ [Gmail] 憑證已保存，包含的權限：{creds.scopes if hasattr(creds, 'scopes') else 'N/A'}")
         except Exception as e:
             print(f"⚠️ 儲存 token.json 時發生錯誤：{e}")
     
