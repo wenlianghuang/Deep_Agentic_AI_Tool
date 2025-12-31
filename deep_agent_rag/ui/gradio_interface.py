@@ -380,8 +380,15 @@ def _create_email_interface():
         1. 在下方輸入郵件提示（例如："寫一封感謝信"、"邀請參加會議"等）
         2. 輸入收件人 Gmail 郵箱地址（僅支援 @gmail.com 或 @googlemail.com）
         3. 點擊「生成郵件草稿」按鈕
-        4. 檢查並修改生成的郵件內容（特別是簽名部分）
-        5. 確認無誤後點擊「發送郵件」按鈕
+        4. 查看 AI 反思評估結果和改進建議（如有）
+        5. 檢查並修改生成的郵件內容（特別是簽名部分）
+        6. 確認無誤後點擊「發送郵件」按鈕
+        
+        **✨ 新功能：AI 迭代反思評估**
+        - 系統會自動進行多輪反思評估（最多 3 輪）
+        - 每輪評估後，如果有改進建議，會自動生成改進版本
+        - 改進後的版本會再次評估，直到 AI 認為滿意為止
+        - 您可以看到完整的反思過程和每輪的改進建議
         
         **注意：此工具僅支援 Gmail 郵箱，收件人必須使用 Gmail 郵箱地址。**
         """
@@ -416,6 +423,15 @@ def _create_email_interface():
                 interactive=False,
                 lines=2
             )
+            
+            # 反思結果顯示
+            email_reflection_display = gr.Textbox(
+                label="🔍 AI 反思評估",
+                value="等待生成郵件...",
+                interactive=False,
+                lines=8,
+                visible=True
+            )
         
         with gr.Column(scale=1):
             # 郵件主題（可編輯）
@@ -446,38 +462,68 @@ def _create_email_interface():
     
     # 事件處理函數
     def generate_draft(prompt, recipient):
-        """生成郵件草稿"""
+        """生成郵件草稿（包含反思功能）"""
         if not prompt or not prompt.strip():
-            return "❌ 請輸入郵件提示", "", "", "❌ 請輸入郵件提示"
+            return "❌ 請輸入郵件提示", "", "", "❌ 請輸入郵件提示", "❌ 請輸入郵件提示"
         
         if not recipient or not recipient.strip():
-            return "❌ 請輸入收件人郵箱", "", "", "❌ 請輸入收件人郵箱"
+            return "❌ 請輸入收件人郵箱", "", "", "❌ 請輸入收件人郵箱", "❌ 請輸入收件人郵箱"
         
         # 驗證郵箱格式和 Gmail 限制
         if "@" not in recipient or "." not in recipient.split("@")[1]:
-            return "❌ 郵箱格式不正確", "", "", "❌ 郵箱格式不正確，請輸入有效的郵箱地址"
+            return "❌ 郵箱格式不正確", "", "", "❌ 郵箱格式不正確，請輸入有效的郵箱地址", "❌ 郵箱格式不正確，請輸入有效的郵箱地址"
         
         # 驗證是否為 Gmail 郵箱
         recipient_lower = recipient.strip().lower()
         if not (recipient_lower.endswith("@gmail.com") or recipient_lower.endswith("@googlemail.com")):
-            return "❌ 僅支援 Gmail 郵箱", "", "", "❌ 此工具僅支援 Gmail 郵箱（@gmail.com 或 @googlemail.com），請輸入 Gmail 郵箱地址"
+            return "❌ 僅支援 Gmail 郵箱", "", "", "❌ 此工具僅支援 Gmail 郵箱（@gmail.com 或 @googlemail.com），請輸入 Gmail 郵箱地址", "❌ 此工具僅支援 Gmail 郵箱（@gmail.com 或 @googlemail.com），請輸入 Gmail 郵箱地址"
         
         try:
             status_msg = "🔄 正在生成郵件草稿..."
+            reflection_msg = "🔄 正在生成郵件草稿..."
             
-            # 生成郵件草稿
-            subject, body, status = generate_email_draft(prompt, recipient.strip())
+            # 生成郵件草稿（包含反思功能，會自動改進）
+            subject, body, status, reflection_result, was_improved = generate_email_draft(
+                prompt, recipient.strip(), enable_reflection=True
+            )
             
             if subject and body:
-                return status, subject, body, ""
+                # 格式化反思結果顯示
+                if reflection_result:
+                    # 計算反思輪數
+                    reflection_count = reflection_result.count("【第") if "【第" in reflection_result else 0
+                    
+                    if was_improved:
+                        if reflection_count > 1:
+                            reflection_display = (
+                                f"🔍 **AI 迭代反思評估結果**（共 {reflection_count} 輪）\n\n"
+                                f"{reflection_result}\n\n"
+                                f"✨ **已自動應用改進建議，經過 {reflection_count} 輪優化，當前顯示的是最終優化版本**"
+                            )
+                        else:
+                            reflection_display = (
+                                f"🔍 **AI 反思評估結果**\n\n"
+                                f"{reflection_result}\n\n"
+                                f"✨ **已自動應用改進建議，當前顯示的是優化後的版本**"
+                            )
+                    else:
+                        reflection_display = (
+                            f"🔍 **AI 反思評估結果**\n\n"
+                            f"{reflection_result}\n\n"
+                            f"✅ **郵件質量良好，無需改進**"
+                        )
+                else:
+                    reflection_display = "⚠️ 反思功能未返回結果"
+                
+                return status, subject, body, "", reflection_display
             else:
-                return status, "", "", status
+                return status, "", "", status, "❌ 生成失敗，無法進行反思評估"
         except Exception as e:
             error_msg = f"❌ 發生錯誤：{str(e)}"
             print(f"Email Tool 錯誤：{e}")
             import traceback
             traceback.print_exc()
-            return "❌ 發生錯誤", "", "", error_msg
+            return "❌ 發生錯誤", "", "", error_msg, f"❌ 發生錯誤：{str(e)}"
     
     def send_draft(recipient, subject, body):
         """發送已編輯的郵件草稿"""
@@ -515,13 +561,13 @@ def _create_email_interface():
     
     def clear_email():
         """清除郵件相關輸入和輸出"""
-        return "", "", "等待操作...", "", "", ""
+        return "", "", "等待操作...", "", "", "等待生成郵件..."
     
     # 綁定事件
     generate_draft_btn.click(
         fn=generate_draft,
         inputs=[email_prompt_input, recipient_input],
-        outputs=[email_status_display, email_subject_input, email_body_input, email_result_display]
+        outputs=[email_status_display, email_subject_input, email_body_input, email_result_display, email_reflection_display]
     )
     
     send_draft_btn.click(
@@ -532,7 +578,7 @@ def _create_email_interface():
     
     clear_email_btn.click(
         fn=clear_email,
-        outputs=[email_prompt_input, recipient_input, email_status_display, email_subject_input, email_body_input, email_result_display]
+        outputs=[email_prompt_input, recipient_input, email_status_display, email_subject_input, email_body_input, email_result_display, email_reflection_display]
     )
     
     # 示例

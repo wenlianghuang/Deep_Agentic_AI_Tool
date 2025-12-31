@@ -1,6 +1,6 @@
 """
 Email Agent
-簡單的郵件生成和發送代理
+簡單的郵件生成和發送代理（包含反思功能）
 """
 import re
 from langchain_core.prompts import ChatPromptTemplate
@@ -8,6 +8,8 @@ from langchain_core.output_parsers import StrOutputParser
 
 from ..utils.llm_utils import get_llm, handle_groq_error
 from ..tools.email_tool import send_email
+from .email_reflection_agent import reflect_on_email, generate_improved_email
+from ..config import MAX_EMAIL_REFLECTION_ITERATIONS
 
 
 def detect_language(text: str) -> str:
@@ -28,16 +30,26 @@ def detect_language(text: str) -> str:
         return 'en'
 
 
-def generate_email_draft(prompt: str, recipient: str) -> tuple[str, str, str]:
+def generate_email_draft(
+    prompt: str, 
+    recipient: str, 
+    enable_reflection: bool = True
+) -> tuple[str, str, str, str, bool]:
     """
-    根據用戶提示生成郵件草稿（不發送）
+    根據用戶提示生成郵件草稿（不發送），並進行反思評估
     
     Args:
         prompt: 用戶的關鍵提示（例如："寫一封感謝信"）
         recipient: 收件人郵箱地址
+        enable_reflection: 是否啟用反思功能（默認 True）
     
     Returns:
-        (subject, body, status_message) 元組
+        (subject, body, status_message, reflection_result, needs_revision) 元組
+        - subject: 郵件主題
+        - body: 郵件正文
+        - status_message: 狀態消息
+        - reflection_result: 反思結果（如果啟用反思）
+        - needs_revision: 是否需要改進（如果啟用反思）
     """
     try:
         # 檢測用戶輸入的語言
@@ -129,15 +141,141 @@ def generate_email_draft(prompt: str, recipient: str) -> tuple[str, str, str]:
         if not email_subject:
             email_subject = default_subject
         
-        status_message = "✅ 郵件草稿已生成，請檢查並修改後再發送"
-        return email_subject, email_body, status_message
+        # 【迭代反思功能】不斷反思直到滿意為止
+        reflection_result = ""
+        was_improved = False
+        all_reflections = []  # 記錄所有反思結果
+        
+        if enable_reflection:
+            try:
+                current_subject = email_subject
+                current_body = email_body
+                current_iteration = 0
+                
+                # 迭代反思循環：最多進行 MAX_EMAIL_REFLECTION_ITERATIONS 輪
+                while current_iteration < MAX_EMAIL_REFLECTION_ITERATIONS:
+                    try:
+                        print(f"   🔍 [EmailReflection] 第 {current_iteration + 1} 輪反思評估...")
+                        reflection_text, improvement_suggestions, needs_revision = reflect_on_email(
+                            prompt, recipient, current_subject, current_body
+                        )
+                        
+                        # 記錄本輪反思結果
+                        all_reflections.append({
+                            "iteration": current_iteration + 1,
+                            "reflection": reflection_text,
+                            "suggestions": improvement_suggestions,
+                            "needs_revision": needs_revision
+                        })
+                        
+                        # 檢查是否有改進建議
+                        has_meaningful_suggestions = (
+                            improvement_suggestions and 
+                            improvement_suggestions.strip() and 
+                            len(improvement_suggestions.strip()) > 20  # 至少要有一定長度的建議
+                        )
+                        
+                        if has_meaningful_suggestions:
+                            print(f"   🔄 [EmailReflection] 第 {current_iteration + 1} 輪：檢測到改進建議，正在生成改進版本...")
+                            try:
+                                improved_subject, improved_body = generate_improved_email(
+                                    prompt, recipient, current_subject, current_body, improvement_suggestions
+                                )
+                                
+                                # 對改進後的版本再次進行反思評估
+                                if current_iteration < MAX_EMAIL_REFLECTION_ITERATIONS - 1:  # 如果不是最後一輪
+                                    print(f"   🔍 [EmailReflection] 評估改進後的版本...")
+                                    next_reflection_text, next_suggestions, next_needs_revision = reflect_on_email(
+                                        prompt, recipient, improved_subject, improved_body
+                                    )
+                                    
+                                    # 檢查改進後的版本是否滿意
+                                    has_next_suggestions = (
+                                        next_suggestions and 
+                                        next_suggestions.strip() and 
+                                        len(next_suggestions.strip()) > 20
+                                    )
+                                    
+                                    if not has_next_suggestions:
+                                        # 改進後的版本沒有新的改進建議，說明已經滿意
+                                        print(f"   ✅ [EmailReflection] 第 {current_iteration + 1} 輪改進後，AI 認為質量已達標")
+                                        current_subject = improved_subject
+                                        current_body = improved_body
+                                        was_improved = True
+                                        all_reflections.append({
+                                            "iteration": current_iteration + 1,
+                                            "reflection": next_reflection_text,
+                                            "suggestions": "無，質量已達標",
+                                            "needs_revision": False
+                                        })
+                                        break  # 滿意了，退出循環
+                                    else:
+                                        # 還有改進空間，繼續下一輪
+                                        print(f"   🔄 [EmailReflection] 第 {current_iteration + 1} 輪改進後仍有改進空間，繼續反思...")
+                                        current_subject = improved_subject
+                                        current_body = improved_body
+                                        was_improved = True
+                                        current_iteration += 1
+                                        continue
+                                else:
+                                    # 最後一輪，直接使用改進版本
+                                    print(f"   ✅ [EmailReflection] 已達最大反思次數，使用最終改進版本")
+                                    current_subject = improved_subject
+                                    current_body = improved_body
+                                    was_improved = True
+                                    break
+                                    
+                            except Exception as e:
+                                print(f"   ⚠️ [EmailReflection] 生成改進版本失敗: {e}")
+                                break
+                        else:
+                            # 沒有改進建議，說明已經滿意
+                            print(f"   ✅ [EmailReflection] 第 {current_iteration + 1} 輪：郵件質量已達標，無需改進")
+                            break
+                            
+                    except Exception as e:
+                        print(f"   ⚠️ [EmailReflection] 第 {current_iteration + 1} 輪反思過程發生錯誤: {e}")
+                        break
+                
+                # 使用最終版本
+                email_subject = current_subject
+                email_body = current_body
+                
+                # 合併所有反思結果
+                if all_reflections:
+                    reflection_parts = []
+                    for r in all_reflections:
+                        iteration_num = r['iteration']
+                        reflection_parts.append(f"【第 {iteration_num} 輪反思評估】\n{r['reflection']}")
+                        if r.get('suggestions') and r['suggestions'] != "無，質量已達標":
+                            reflection_parts.append(f"\n【改進建議】\n{r['suggestions']}")
+                    
+                    reflection_result = "\n\n".join(reflection_parts)
+                else:
+                    reflection_result = "反思過程未產生結果"
+                
+                # 生成狀態消息
+                if was_improved:
+                    total_iterations = len([r for r in all_reflections if r.get('suggestions') and r['suggestions'] != "無，質量已達標"])
+                    status_message = f"✅ 郵件草稿已生成並經過 {total_iterations} 輪 AI 反思優化，請檢查並修改後再發送"
+                else:
+                    status_message = "✅ 郵件草稿已生成（AI 反思評估：質量良好），請檢查並修改後再發送"
+                    
+            except Exception as e:
+                print(f"   ⚠️ [EmailReflection] 反思過程發生錯誤: {e}")
+                reflection_result = f"反思過程發生錯誤：{str(e)}"
+                status_message = "✅ 郵件草稿已生成，請檢查並修改後再發送"
+        else:
+            status_message = "✅ 郵件草稿已生成，請檢查並修改後再發送"
+        
+        return email_subject, email_body, status_message, reflection_result, was_improved
         
     except Exception as e:
         error_msg = f"❌ 生成郵件草稿時發生錯誤：{str(e)}"
         print(f"Email Agent 錯誤：{e}")
         import traceback
         traceback.print_exc()
-        return "", "", error_msg
+        return "", "", error_msg, "", False
 
 
 def send_email_draft(recipient: str, subject: str, body: str) -> str:
