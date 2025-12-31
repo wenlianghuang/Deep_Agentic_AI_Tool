@@ -1,5 +1,7 @@
 # Gmail API 設置指南
 
+> 📚 **相關文檔**：[主 README](README.md) | [功能詳述](FEATURES.md#智能郵件助手) | [配置指南](CONFIGURATION.md#email-配置)
+
 本系統使用 Gmail API 發送郵件，相比傳統 SMTP 方式，可以避免被歸類為垃圾郵件的風險。
 
 ## 📋 設置步驟
@@ -100,6 +102,30 @@ GMAIL_TOKEN_FILE=token.json
 3. 輸入收件人郵箱地址
 4. 點擊「📧 生成並發送郵件」
 5. 如果設置正確，郵件會成功發送並顯示 Message ID
+
+## 📅 Google Calendar API 設置
+
+**注意**：Google Calendar API 與 Gmail API 共用相同的 OAuth2 憑證。
+
+### 啟用 Calendar API
+
+1. 在 Google Cloud Console 中，進入「API 和服務」>「資料庫」
+2. 搜尋「Google Calendar API」
+3. 點擊「Google Calendar API」並點擊「啟用」
+
+### 共用憑證
+
+- Calendar API 使用與 Gmail API 相同的 `credentials.json` 文件
+- 首次使用 Calendar 功能時，系統會自動請求 Calendar 權限
+- Token 會存儲在同一個 `token.json` 文件中
+
+### 權限範圍
+
+系統會自動請求以下權限：
+- `gmail.send`：發送郵件
+- `calendar`：完整的 Calendar 權限（創建、更新、刪除事件）
+
+**詳細使用說明請參考**：[功能詳述 - 智能行事曆管理](FEATURES.md#智能行事曆管理)
 
 ## 🆚 Gmail API vs SMTP
 

@@ -1,5 +1,7 @@
 # Google Maps API 整合說明
 
+> 📚 **相關文檔**：[主 README](README.md) | [功能詳述](FEATURES.md#智能行事曆管理) | [配置指南](CONFIGURATION.md#google-maps-配置)
+
 本系統已整合 Google Maps API，為行事曆事件提供智能地點驗證、標準化和交通時間計算功能。
 
 ## 🎯 功能特色
