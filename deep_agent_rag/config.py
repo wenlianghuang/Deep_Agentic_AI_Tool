@@ -39,6 +39,9 @@ RETRIEVER_K = 3
 MAX_ITERATIONS = 5
 MAX_RESEARCH_ITERATIONS = 20
 
+# Reflection 配置（通用反思迭代次數）
+MAX_REFLECTION_ITERATION = 0  # 反思的最大迭代次數
+
 # Groq API 配置
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = "llama-3.3-70b-versatile"  # 或其他 Groq 支持的模型
@@ -47,7 +50,7 @@ GROQ_TEMPERATURE = 0.7
 USE_GROQ_FIRST = True  # 是否优先使用 Groq API
 
 # Email 配置 - 使用 Gmail API
-EMAIL_SENDER = "wenliangmatt@gmail.com"
+EMAIL_SENDER = "matthuang46@gmail.com"
 # Gmail API 配置
 GMAIL_CREDENTIALS_FILE = os.getenv("GMAIL_CREDENTIALS_FILE", "credentials_matthuang.json")  # OAuth2 憑證文件
 GMAIL_TOKEN_FILE = os.getenv("GMAIL_TOKEN_FILE", "token.json")  # 儲存存取令牌的文件
@@ -57,4 +60,12 @@ GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send']  # Gmail API 權�
 CALENDAR_CREDENTIALS_FILE = os.getenv("CALENDAR_CREDENTIALS_FILE", "credentials_matthuang.json")  # OAuth2 憑證文件（可與 Gmail 共用）
 CALENDAR_TOKEN_FILE = os.getenv("CALENDAR_TOKEN_FILE", "token.json")  # 儲存存取令牌的文件（可與 Gmail 共用）
 CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar']  # Calendar API 權限範圍
+
+# Google Maps API 配置
+NORMAL_GOOGLE_MAPS_API_KEY = os.getenv("NORMAL_GOOGLE_MAPS_API_KEY", "")
+
+# 用戶常用位置配置（用於計算交通時間）
+# 設置您的家庭地址或辦公室地址，系統會自動計算從這些位置到事件地點的交通時間
+USER_HOME_ADDRESS = os.getenv("USER_HOME_ADDRESS", "")  # 例如："台北市信義區信義路五段7號"
+USER_OFFICE_ADDRESS = os.getenv("USER_OFFICE_ADDRESS", "")  # 例如："台北市大安區敦化南路二段216號"
 
