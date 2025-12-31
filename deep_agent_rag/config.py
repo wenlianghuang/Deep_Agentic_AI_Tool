@@ -53,3 +53,8 @@ GMAIL_CREDENTIALS_FILE = os.getenv("GMAIL_CREDENTIALS_FILE", "credentials.json")
 GMAIL_TOKEN_FILE = os.getenv("GMAIL_TOKEN_FILE", "token.json")  # 儲存存取令牌的文件
 GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send']  # Gmail API 權限範圍
 
+# Calendar 配置 - 使用 Google Calendar API
+CALENDAR_CREDENTIALS_FILE = os.getenv("CALENDAR_CREDENTIALS_FILE", "credentials.json")  # OAuth2 憑證文件（可與 Gmail 共用）
+CALENDAR_TOKEN_FILE = os.getenv("CALENDAR_TOKEN_FILE", "token.json")  # 儲存存取令牌的文件（可與 Gmail 共用）
+CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar']  # Calendar API 權限範圍
+
