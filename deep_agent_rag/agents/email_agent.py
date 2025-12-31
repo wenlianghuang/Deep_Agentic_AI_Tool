@@ -142,10 +142,10 @@ def generate_email_draft(prompt: str, recipient: str) -> tuple[str, str, str]:
 
 def send_email_draft(recipient: str, subject: str, body: str) -> str:
     """
-    發送已編輯的郵件草稿
+    發送已編輯的郵件草稿（僅支援 Gmail 郵箱）
     
     Args:
-        recipient: 收件人郵箱地址
+        recipient: 收件人郵箱地址（必須是 Gmail 郵箱）
         subject: 郵件主題
         body: 郵件正文內容
     
@@ -153,6 +153,15 @@ def send_email_draft(recipient: str, subject: str, body: str) -> str:
         發送結果消息
     """
     try:
+        # 驗證收件人是否為 Gmail 郵箱
+        recipient_lower = recipient.strip().lower()
+        if not (recipient_lower.endswith("@gmail.com") or recipient_lower.endswith("@googlemail.com")):
+            return (
+                f"❌ 錯誤：此工具僅支援 Gmail 郵箱。\n"
+                f"您輸入的郵箱：{recipient}\n"
+                f"請使用 @gmail.com 或 @googlemail.com 結尾的郵箱地址。"
+            )
+        
         # 發送郵件
         result = send_email.invoke({
             "recipient": recipient,
