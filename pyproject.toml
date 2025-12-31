@@ -36,4 +36,5 @@ dependencies = [
     "google-auth-httplib2>=0.3.0",
     "google-auth-oauthlib>=1.2.3",
     "googlemaps>=4.10.0",
+    "parlant @ git+https://github.com/emcie-co/parlant@develop",
 ]
