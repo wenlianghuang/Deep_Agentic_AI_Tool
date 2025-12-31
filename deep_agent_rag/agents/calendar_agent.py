@@ -10,7 +10,7 @@ from langchain_core.output_parsers import StrOutputParser
 from ..utils.llm_utils import get_llm, handle_groq_error
 from ..tools.calendar_tool import create_calendar_event, update_calendar_event, delete_calendar_event
 from .calendar_reflection_agent import reflect_on_calendar_event, generate_improved_calendar_event
-from ..config import MAX_EMAIL_REFLECTION_ITERATIONS
+from ..config import MAX_REFLECTION_ITERATION
 from ..tools.googlemaps_tool import enrich_location_info
 
 
@@ -298,8 +298,8 @@ def generate_calendar_draft(
                 current_event_dict = event_dict.copy()
                 current_iteration = 0
                 
-                # 迭代反思循環：最多進行 MAX_EMAIL_REFLECTION_ITERATIONS 輪
-                while current_iteration < MAX_EMAIL_REFLECTION_ITERATIONS:
+                # 迭代反思循環：最多進行 MAX_REFLECTION_ITERATION 輪
+                while current_iteration < MAX_REFLECTION_ITERATION:
                     try:
                         print(f"   🔍 [CalendarReflection] 第 {current_iteration + 1} 輪反思評估...")
                         reflection_text, improvement_suggestions, needs_revision = reflect_on_calendar_event(
@@ -329,7 +329,7 @@ def generate_calendar_draft(
                                 )
                                 
                                 # 對改進後的版本再次進行反思評估
-                                if current_iteration < MAX_EMAIL_REFLECTION_ITERATIONS - 1:  # 如果不是最後一輪
+                                if current_iteration < MAX_REFLECTION_ITERATION - 1:  # 如果不是最後一輪
                                     print(f"   🔍 [CalendarReflection] 評估改進後的版本...")
                                     next_reflection_text, next_suggestions, next_needs_revision = reflect_on_calendar_event(
                                         prompt, improved_event_dict

@@ -39,8 +39,8 @@ RETRIEVER_K = 3
 MAX_ITERATIONS = 5
 MAX_RESEARCH_ITERATIONS = 20
 
-# Email Reflection 配置
-MAX_EMAIL_REFLECTION_ITERATIONS = 0  # 郵件反思的最大迭代次數
+# Reflection 配置（通用反思迭代次數）
+MAX_REFLECTION_ITERATION = 0  # 反思的最大迭代次數
 
 # Groq API 配置
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
