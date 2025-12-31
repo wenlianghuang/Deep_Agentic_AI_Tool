@@ -19,6 +19,26 @@ from ..config import (
 )
 
 
+def is_gmail_address(email: str) -> bool:
+    """
+    驗證郵箱是否為 Gmail 郵箱
+    
+    Args:
+        email: 郵箱地址
+    
+    Returns:
+        如果是 Gmail 郵箱則返回 True，否則返回 False
+    """
+    if not email or not email.strip():
+        return False
+    
+    email = email.strip().lower()
+    
+    # 檢查是否為 Gmail 郵箱（@gmail.com 或 @googlemail.com）
+    gmail_domains = ['@gmail.com', '@googlemail.com']
+    return any(email.endswith(domain) for domain in gmail_domains)
+
+
 def get_gmail_service():
     """
     獲取 Gmail API 服務實例
@@ -70,10 +90,10 @@ def get_gmail_service():
 @tool
 def send_email(recipient: str, subject: str, body: str) -> str:
     """
-    使用 Gmail API 發送郵件
+    使用 Gmail API 發送郵件（僅支援 Gmail 郵箱）
     
     Args:
-        recipient: 收件人郵箱地址
+        recipient: 收件人郵箱地址（必須是 Gmail 郵箱）
         subject: 郵件主題
         body: 郵件正文內容
     
@@ -81,6 +101,14 @@ def send_email(recipient: str, subject: str, body: str) -> str:
         發送結果消息
     """
     try:
+        # 驗證收件人是否為 Gmail 郵箱
+        if not is_gmail_address(recipient):
+            return (
+                f"❌ 錯誤：此工具僅支援 Gmail 郵箱。\n"
+                f"您輸入的郵箱：{recipient}\n"
+                f"請使用 @gmail.com 或 @googlemail.com 結尾的郵箱地址。"
+            )
+        
         # 獲取 Gmail API 服務
         service = get_gmail_service()
         
