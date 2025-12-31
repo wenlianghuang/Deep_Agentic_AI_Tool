@@ -389,17 +389,18 @@ def generate_calendar_draft(
                 print(f"   ⚠️ [CalendarReflection] 反思過程發生錯誤: {e}")
                 reflection_result = f"反思過程發生錯誤：{str(e)}"
                 # 使用原始狀態消息
-        if missing_info:
-            missing_items = []
-            if missing_info.get("date"):
-                missing_items.append("日期")
-            if missing_info.get("time"):
-                missing_items.append("時間")
+                if missing_info:
+                    missing_items = []
+                    if missing_info.get("date"):
+                        missing_items.append("日期")
+                    if missing_info.get("time"):
+                        missing_items.append("時間")
                     status_message = f"✅ 行事曆事件草稿已生成，請補充以下資訊：{', '.join(missing_items)}"
                 else:
                     status_message = "✅ 行事曆事件草稿已生成，請檢查並修改後再創建"
-        else:
-            # 未啟用反思功能，使用原始邏輯
+        
+        # 如果未啟用反思功能，使用原始邏輯
+        if not enable_reflection:
             if missing_info:
                 missing_items = []
                 if missing_info.get("date"):
