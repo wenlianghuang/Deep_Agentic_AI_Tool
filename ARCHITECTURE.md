@@ -1,6 +1,10 @@
 # 系統架構
 
+> 📚 **相關文檔**：[主 README](README.md) | [架構分離說明](ARCHITECTURE_SEPARATION.md) | [功能詳述](FEATURES.md)
+
 本文檔詳細說明 Deep Agentic AI Tool 的系統架構、組件設計和工作流程。
+
+**提示**：如果您想了解為什麼深度研究代理與 Email/Calendar 工具是分離的，請參考 [架構分離說明](ARCHITECTURE_SEPARATION.md)。
 
 ## 🏗️ 整體架構
 
