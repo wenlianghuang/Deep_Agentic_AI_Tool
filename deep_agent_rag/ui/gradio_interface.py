@@ -204,9 +204,9 @@ def create_gradio_interface(graph):
         gr.Markdown(
             """
             <div class="header">
-            <h1>🚀 Deep Research Agent with RAG (Local MLX)</h1>
+            <h1>🚀 Deep Research Agent with RAG</h1>
             <p><strong>功能特色：</strong></p>
-            <p>📊 股票資訊查詢 | 🌐 網路搜尋 | 📚 PDF 知識庫查詢（Tree of Thoughts 論文）| 📧 智能郵件助手 | 📅 智能行事曆管理</p>
+            <p>📊 股票資訊查詢 | 🌐 網路搜尋 | 📚 PDF 知識庫查詢（Tree of Thoughts 論文）| 📧 智能郵件助手 | 📅 智能行事曆管理 | 📄 私有文件 RAG 問答</p>
             <p><strong>智能規劃：</strong> 系統會根據問題類型自動選擇合適的研究工具</p>
             <p><strong>本地模型：</strong> 使用 MLX 本地模型，保護隱私，無需 API 金鑰</p>
             </div>
@@ -227,6 +227,10 @@ def create_gradio_interface(graph):
             # Tab 3: Calendar Tool
             with gr.Tab("📅 Calendar Tool"):
                 _create_calendar_interface()
+            
+            # Tab 4: Private File RAG
+            with gr.Tab("📚 Private File RAG"):
+                _create_private_file_rag_interface()
     
     return demo
 
@@ -1252,6 +1256,405 @@ def _create_calendar_interface():
         - 創建 OAuth2 憑證並下載為 `credentials.json`
         - 將 `credentials.json` 放在專案根目錄
         - 確保授予 Calendar API 的完整存取權限
+        """
+    )
+
+
+def _create_private_file_rag_interface():
+    """創建私有文件 RAG 界面"""
+    from ..rag.private_file_rag import get_private_rag_instance
+    import tempfile
+    import os
+    
+    gr.Markdown(
+        """
+        ### 📚 私有文件 RAG 問答系統
+        
+        上傳您的私有文件（PDF、DOCX、TXT），系統會自動建立 RAG 知識庫，讓 AI 可以回答關於這些文件的問題。
+        
+        **使用方式：**
+        1. 上傳一個或多個文件（PDF、DOCX、TXT）
+        2. 點擊「處理文件」按鈕，系統會自動處理文件並建立 RAG 系統
+        3. 在問題輸入框中輸入您的問題
+        4. 點擊「查詢」按鈕，AI 會基於上傳的文件回答問題
+        
+        **功能特色：**
+        - 支持多種文件格式：PDF、DOCX、TXT
+        - 使用混合搜尋（BM25 + 向量檢索）提升檢索準確度
+        - 可選重排序功能，進一步優化結果
+        - 支持語義分塊，保持語義完整性
+        - 自動檢測文檔類型並調整回答風格
+        
+        **LLM 使用策略：**
+        - 🥇 **優先使用 Groq API**：如果配置了 API 金鑰，優先使用 Groq（速度快、質量高）
+        - 🥈 **其次使用 Ollama**：如果 Groq 不可用，自動切換到 Ollama 本地模型
+        - 🥉 **最後使用 MLX**：如果前兩者都不可用，使用 MLX 本地模型作為備選
+        - 💡 **自動切換**：系統會根據 API 額度、服務狀態等自動選擇最合適的 LLM
+        
+        **注意：** 此功能需要 Learn_RAG 項目在正確的位置
+        """
+    )
+    
+    with gr.Row():
+        with gr.Column(scale=1):
+            # 文件上傳區域
+            file_upload = gr.File(
+                label="📁 上傳文件（PDF、DOCX、TXT）",
+                file_count="multiple",
+                file_types=[".pdf", ".docx", ".doc", ".txt"]
+            )
+            
+            # 處理選項
+            use_semantic_chunking = gr.Checkbox(
+                label="使用語義分塊（推薦）",
+                value=False,
+                info="語義分塊能保持語義完整性，但處理時間較長"
+            )
+            
+            # 分塊參數調整（字符分塊模式）
+            gr.Markdown("**📏 字符分塊參數調整（僅在未使用語義分塊時有效）**")
+            chunk_size_slider = gr.Slider(
+                minimum=200,
+                maximum=1500,
+                value=500,  # 預設改為 500，提供更細的粒度
+                step=50,
+                label="分塊大小（字符數）",
+                info="較小的值提供更細的粒度，較大的值包含更多上下文。建議：300-800"
+            )
+            chunk_overlap_slider = gr.Slider(
+                minimum=0,
+                maximum=300,
+                value=100,  # 預設改為 100，約為 chunk_size 的 20%
+                step=25,
+                label="分塊重疊（字符數）",
+                info="重疊可以保持上下文連貫性。建議：chunk_size 的 15-25%"
+            )
+            
+            # 語義分塊參數調整（僅在語義分塊模式下有效）
+            gr.Markdown("**🔬 語義分塊參數調整（僅在使用語義分塊時有效）**")
+            semantic_threshold_slider = gr.Slider(
+                minimum=0.5,
+                maximum=2.5,
+                value=1.0,  # 預設改為 1.0，提供更細的粒度（原為 1.5）
+                step=0.1,
+                label="語義分塊閾值（敏感度）",
+                info="較小的值會產生更多、更細的 chunks。建議：0.8-1.2（細粒度），1.2-1.8（中等），1.8-2.5（粗粒度）"
+            )
+            semantic_min_chunk_slider = gr.Slider(
+                minimum=50,
+                maximum=300,
+                value=100,
+                step=25,
+                label="最小分塊大小（字符數）",
+                info="小於此大小的 chunks 會被合併到相鄰的 chunks。建議：50-200"
+            )
+            
+            # 按鈕
+            with gr.Row():
+                process_btn = gr.Button("📝 處理文件", variant="primary", scale=1)
+                clear_files_btn = gr.Button("🗑️ 清除", variant="secondary", scale=1)
+            
+            # 狀態顯示
+            process_status = gr.Textbox(
+                label="📊 處理狀態",
+                value="等待上傳文件...",
+                interactive=False,
+                lines=3
+            )
+        
+        with gr.Column(scale=1):
+            # 問題輸入
+            query_input = gr.Textbox(
+                label="❓ 請輸入您的問題",
+                placeholder="例如：這份文檔的主要內容是什麼？",
+                lines=5
+            )
+            
+            # 查詢選項
+            with gr.Row():
+                top_k_slider = gr.Slider(
+                    minimum=1,
+                    maximum=10,
+                    value=3,
+                    step=1,
+                    label="返回結果數量"
+                )
+                use_llm_checkbox = gr.Checkbox(
+                    label="使用 LLM 生成回答",
+                    value=True
+                )
+            
+            # 查詢按鈕
+            query_btn = gr.Button("🔍 查詢", variant="primary", scale=1)
+            
+            # 查詢狀態
+            query_status = gr.Textbox(
+                label="📊 查詢狀態",
+                value="等待查詢...",
+                interactive=False,
+                lines=2
+            )
+    
+    with gr.Row():
+        # 回答顯示
+        answer_display = gr.Textbox(
+            label="💬 AI 回答",
+            lines=15,
+            interactive=False
+        )
+    
+    with gr.Row():
+        # 檢索結果顯示
+        results_display = gr.Textbox(
+            label="📄 檢索到的文檔片段（參考來源）",
+            lines=10,
+            interactive=False
+        )
+    
+    # 事件處理函數
+    def process_files(files, use_semantic, chunk_size, chunk_overlap, semantic_threshold, semantic_min_chunk):
+        """
+        處理上傳的文件
+        
+        Args:
+            files: 上傳的文件列表
+            use_semantic: 是否使用語義分塊
+            chunk_size: 字符分塊大小（僅用於字符分塊模式）
+            chunk_overlap: 字符分塊重疊大小（僅用於字符分塊模式）
+            semantic_threshold: 語義分塊閾值（僅用於語義分塊模式）
+            semantic_min_chunk: 語義分塊最小 chunk 大小（僅用於語義分塊模式）
+        """
+        if not files:
+            return "❌ 請先上傳文件", "等待上傳文件..."
+        
+        try:
+            # 獲取 RAG 實例
+            rag = get_private_rag_instance()
+            
+            # 更新配置
+            rag.use_semantic_chunking = use_semantic
+            
+            # 更新分塊參數（根據分塊模式選擇）
+            if not use_semantic:
+                # 字符分塊模式：更新字符分塊參數
+                rag.chunk_size = int(chunk_size)
+                rag.chunk_overlap = int(chunk_overlap)
+                print(f"📏 使用字符分塊：chunk_size={rag.chunk_size}, chunk_overlap={rag.chunk_overlap}")
+            else:
+                # 語義分塊模式：更新語義分塊參數
+                rag.semantic_threshold = float(semantic_threshold)
+                rag.semantic_min_chunk_size = int(semantic_min_chunk)
+                print(f"📏 使用語義分塊：threshold={rag.semantic_threshold}, min_chunk_size={rag.semantic_min_chunk_size}")
+            
+            # 處理上傳的文件（Gradio 會自動保存到臨時目錄）
+            # Gradio 6.x 返回的是文件路徑字符串列表
+            file_paths = []
+            
+            for file in files:
+                # Gradio 6.x 返回字符串路徑，舊版本可能返回文件對象
+                if isinstance(file, str):
+                    file_path = file
+                elif hasattr(file, 'name'):
+                    # 舊版本 Gradio 文件對象
+                    file_path = file.name
+                else:
+                    # 嘗試轉換為字符串
+                    file_path = str(file)
+                
+                if os.path.exists(file_path):
+                    file_paths.append(file_path)
+                else:
+                    return f"❌ 文件不存在: {file_path}", "處理失敗"
+            
+            if not file_paths:
+                return "❌ 沒有有效的文件路徑", "處理失敗"
+            
+            # 處理文件
+            documents, status_msg = rag.process_files(file_paths)
+            
+            if documents:
+                return status_msg, "✅ 文件處理完成，可以開始查詢"
+            else:
+                return status_msg, "❌ 處理失敗"
+                
+        except Exception as e:
+            error_msg = f"❌ 處理文件時發生錯誤: {str(e)}"
+            print(error_msg)
+            import traceback
+            traceback.print_exc()
+            return error_msg, "❌ 處理失敗"
+    
+    def query_rag(query, top_k, use_llm):
+        """查詢 RAG 系統"""
+        if not query or not query.strip():
+            return "❌ 請輸入問題", "", "等待查詢..."
+        
+        try:
+            # 獲取 RAG 實例
+            rag = get_private_rag_instance()
+            
+            if not rag.is_initialized:
+                return "❌ RAG 系統尚未初始化，請先處理文件", "", "RAG 系統未初始化"
+            
+            # 執行查詢
+            result = rag.query(
+                query=query,
+                top_k=int(top_k),
+                use_llm=use_llm
+            )
+            
+            if not result.get("success"):
+                error = result.get("error", "未知錯誤")
+                return f"❌ 查詢失敗: {error}", "", f"❌ {error}"
+            
+            # 格式化回答
+            answer = result.get("answer", "")
+            if not answer:
+                answer = "⚠️ LLM 未生成回答（可能 LLM 服務未啟動）\n\n您可以查看下方的檢索結果。"
+            
+            # 格式化檢索結果
+            results = result.get("results", [])
+            results_text = ""
+            if results:
+                results_text = "檢索到的文檔片段：\n" + "="*60 + "\n\n"
+                for i, r in enumerate(results, 1):
+                    metadata = r.get("metadata", {})
+                    title = metadata.get("title", "未知標題")
+                    file_path = metadata.get("file_path", "")
+                    score = r.get("rerank_score") or r.get("hybrid_score") or r.get("score", 0)
+                    
+                    results_text += f"片段 {i}:\n"
+                    results_text += f"  來源: {title}\n"
+                    if file_path:
+                        results_text += f"  文件: {os.path.basename(file_path)}\n"
+                    results_text += f"  相關性分數: {score:.4f}\n"
+                    results_text += f"  內容預覽: {r.get('content', '')[:300]}...\n"
+                    results_text += "\n" + "-"*60 + "\n\n"
+            
+            stats = result.get("stats", {})
+            status_msg = f"✅ 查詢完成"
+            if stats:
+                total_time = stats.get("total_time", 0)
+                if total_time > 0:
+                    status_msg += f"（耗時: {total_time:.2f}秒）"
+            
+            return answer, results_text, status_msg
+            
+        except Exception as e:
+            error_msg = f"❌ 查詢時發生錯誤: {str(e)}"
+            print(error_msg)
+            import traceback
+            traceback.print_exc()
+            return error_msg, "", f"❌ {error_msg}"
+    
+    def clear_all():
+        """清除所有內容"""
+        from ..rag.private_file_rag import reset_private_rag_instance
+        reset_private_rag_instance()
+        return (
+            None,  # file_upload
+            False,  # use_semantic_chunking
+            500,  # chunk_size_slider（恢復預設值：更細的粒度）
+            100,  # chunk_overlap_slider（恢復預設值：約為 chunk_size 的 20%）
+            1.0,  # semantic_threshold_slider（恢復預設值：更細的粒度）
+            100,  # semantic_min_chunk_slider（恢復預設值）
+            "等待上傳文件...",  # process_status
+            "",  # query_input
+            3,  # top_k_slider
+            True,  # use_llm_checkbox
+            "等待查詢...",  # query_status
+            "",  # answer_display
+            ""  # results_display
+        )
+    
+    # 綁定事件
+    process_btn.click(
+        fn=process_files,
+        inputs=[
+            file_upload, 
+            use_semantic_chunking, 
+            chunk_size_slider, 
+            chunk_overlap_slider,
+            semantic_threshold_slider,
+            semantic_min_chunk_slider
+        ],
+        outputs=[process_status, query_status]
+    )
+    
+    query_btn.click(
+        fn=query_rag,
+        inputs=[query_input, top_k_slider, use_llm_checkbox],
+        outputs=[answer_display, results_display, query_status]
+    )
+    
+    clear_files_btn.click(
+        fn=clear_all,
+        outputs=[
+            file_upload,
+            use_semantic_chunking,
+            chunk_size_slider,
+            chunk_overlap_slider,
+            semantic_threshold_slider,
+            semantic_min_chunk_slider,
+            process_status,
+            query_input,
+            top_k_slider,
+            use_llm_checkbox,
+            query_status,
+            answer_display,
+            results_display
+        ]
+    )
+    
+    # 示例問題
+    gr.Examples(
+        examples=[
+            "這份文檔的主要內容是什麼？",
+            "文檔中提到了哪些關鍵概念？",
+            "總結文檔的核心觀點",
+            "文檔中有哪些重要的數據或統計信息？"
+        ],
+        inputs=query_input
+    )
+    
+    # 頁腳說明
+    gr.Markdown(
+        """
+        ---
+        **使用說明：**
+        1. 支持的文件格式：PDF、DOCX、DOC、TXT
+        2. 可以同時上傳多個文件，系統會合併處理
+        3. 語義分塊模式能保持語義完整性，但處理時間較長
+        4. 字符分塊模式處理速度快，適合快速測試
+        
+        **分塊粒度調整：**
+        
+        **字符分塊參數**（僅在未使用語義分塊時有效）：
+        - 分塊大小：較小的值（300-500）提供更細的粒度，檢索更精確
+        - 分塊重疊：建議設為分塊大小的 15-25%，可以保持上下文連貫性
+        - 預設值：分塊大小 500，重疊 100（已優化為更細的粒度）
+        
+        **語義分塊參數**（僅在使用語義分塊時有效）：
+        - 語義分塊閾值：控制分塊的敏感度
+          * 0.8-1.2：細粒度，產生更多、更小的 chunks（推薦，已設為預設 1.0）
+          * 1.2-1.8：中等粒度，平衡精確度和上下文
+          * 1.8-2.5：粗粒度，產生更少、更大的 chunks
+        - 最小分塊大小：小於此大小的 chunks 會被合併
+          * 建議值：50-200 字符
+          * 較小的值保留更多細節，但可能產生過多小 chunks
+        
+        7. 如果 LLM 服務未啟動，可以查看檢索結果手動分析
+        
+        **技術細節：**
+        - 使用混合搜尋（BM25 + 向量檢索）提升檢索準確度
+        - 可選重排序功能進一步優化結果
+        - 自動檢測文檔類型並調整回答風格
+        - 支持中英文問答
+        
+        **注意事項：**
+        - 首次使用需要下載 Embedding 模型（可能需要一些時間）
+        - 確保 Learn_RAG 項目在正確的位置
+        - 如果使用 LLM 生成回答，需要確保 Ollama 服務正在運行
         """
     )
 
