@@ -69,6 +69,11 @@ A comprehensive deep research agent system with RAG (Retrieval-Augmented Generat
    # Optional: Groq API (for faster inference)
    GROQ_API_KEY=your_groq_api_key_here
    
+   # Optional: Ollama (for local inference with Llama 3.2 or other models)
+   USE_OLLAMA=true
+   OLLAMA_BASE_URL=http://localhost:11434
+   OLLAMA_MODEL=llama3.2:3b
+   
    # Optional: Tavily API (for web search)
    TAVILY_API_KEY=your_tavily_api_key_here
    
@@ -204,17 +209,37 @@ The system uses a multi-agent workflow orchestrated by LangGraph:
 
 ### LLM Configuration
 
-The system supports multiple LLM backends with automatic fallback:
+The system supports multiple LLM backends with automatic fallback (priority order):
 
-1. **Primary**: Groq API (fast, requires API key)
+1. **Primary**: Groq API (fastest, requires API key)
    - Model: `llama-3.3-70b-versatile`
    - Automatically used if `GROQ_API_KEY` is set
 
-2. **Fallback**: Local MLX Model (privacy-preserving, no API key needed)
-   - Model: `mlx-community/Qwen2.5-Coder-7B-Instruct-4bit`
+2. **Secondary**: Ollama (local inference, excellent reasoning capabilities)
+   - Default Model: `llama3.2:3b` (Llama 3.2 3B)
+   - Requires Ollama installed and model downloaded
+   - Enable with `USE_OLLAMA=true` in `.env`
+   - Lightweight and efficient, suitable for 16GB memory systems
    - Automatically used when Groq API is unavailable or quota exhausted
 
+3. **Fallback**: Local MLX Model (privacy-preserving, no API key needed)
+   - Model: `mlx-community/Qwen2.5-Coder-7B-Instruct-4bit`
+   - Automatically used when both Groq API and Ollama are unavailable
+
 The system automatically switches between backends based on availability.
+
+**Setting up Ollama:**
+```bash
+# Install Ollama (if not already installed)
+# macOS: brew install ollama
+# Or download from https://ollama.com
+
+# Download Llama 3.2 model
+ollama pull llama3.2:3b
+
+# Start Ollama service (usually runs automatically)
+ollama serve
+```
 
 ## ⚙️ Configuration
 
@@ -283,6 +308,7 @@ Key dependencies (see `pyproject.toml` for complete list):
 - **LangChain**: Agent framework and tool integration
 - **LangGraph**: Agent orchestration and workflow management
 - **MLX/MLX-LM**: Local model inference (Apple Silicon optimized)
+- **LangChain Ollama**: Ollama integration for local models
 - **Gradio**: Web interface
 - **ChromaDB**: Vector database for RAG
 - **Tavily**: Web search API
@@ -298,8 +324,15 @@ Key dependencies (see `pyproject.toml` for complete list):
 
 ### Groq API Issues
 
-- **Quota exhausted**: The system automatically falls back to local MLX model
+- **Quota exhausted**: The system automatically falls back to Ollama (if enabled) or local MLX model
 - **API errors**: Check your `GROQ_API_KEY` in `.env` file
+
+### Ollama Issues
+
+- **Ollama not starting**: Ensure Ollama service is running (`ollama serve`)
+- **Model not found**: Download the model first (`ollama pull llama3.2:3b`)
+- **Connection errors**: Check `OLLAMA_BASE_URL` in `.env` (default: `http://localhost:11434`)
+- **Memory issues**: Llama 3.2:3B requires ~2GB RAM, suitable for systems with 16GB memory
 
 ### RAG System Issues
 
