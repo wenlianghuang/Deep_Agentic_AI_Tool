@@ -21,3 +21,5 @@ token.json
 .DS_Store
 
 chroma_db*/
+
+.cursor/*
