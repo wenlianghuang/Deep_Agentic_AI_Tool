@@ -17,7 +17,7 @@ def main():
     """主函數：初始化系統並啟動 Gradio 界面"""
     print("\n🚀 Deep Research Agent with RAG (Local MLX Edition) 啟動！")
     print("💡 本系統整合了：股票查詢、網路搜尋、PDF 知識庫查詢功能\n")
-    print("📦 使用本地 MLX 模型，保護隱私，無需 API 金鑰\n")
+    
     
     # 初始化 RAG 系統
     print("🔧 正在初始化系統組件...")
