@@ -5,6 +5,8 @@ Gradio 界面模組
 import uuid
 import re
 import time
+import json
+import os
 from typing import Iterator, Tuple
 import gradio as gr
 from langchain_core.messages import HumanMessage
@@ -1261,29 +1263,31 @@ def _create_calendar_interface():
 
 
 def _create_private_file_rag_interface():
-    """創建私有文件 RAG 界面"""
+    """創建私有文件 RAG 界面（對話式 Chatbot）"""
     from ..rag.private_file_rag import get_private_rag_instance
     import tempfile
     import os
     
     gr.Markdown(
         """
-        ### 📚 私有文件 RAG 問答系統
+        ### 📚 私有文件 RAG 對話系統
         
         上傳您的私有文件（PDF、DOCX、TXT），系統會自動建立 RAG 知識庫，讓 AI 可以回答關於這些文件的問題。
+        支持多輪對話，AI 會記住之前的對話內容，提供更連貫的回答。
         
         **使用方式：**
         1. 上傳一個或多個文件（PDF、DOCX、TXT）
         2. 點擊「處理文件」按鈕，系統會自動處理文件並建立 RAG 系統
-        3. 在問題輸入框中輸入您的問題
-        4. 點擊「查詢」按鈕，AI 會基於上傳的文件回答問題
+        3. 在對話框中輸入您的問題，按 Enter 或點擊「發送」按鈕
+        4. AI 會基於上傳的文件回答問題，支持多輪對話
         
         **功能特色：**
-        - 支持多種文件格式：PDF、DOCX、TXT
-        - 使用混合搜尋（BM25 + 向量檢索）提升檢索準確度
-        - 可選重排序功能，進一步優化結果
-        - 支持語義分塊，保持語義完整性
-        - 自動檢測文檔類型並調整回答風格
+        - 💬 **對話式界面**：類似 Gemini 的對話體驗，支持多輪對話
+        - 📄 支持多種文件格式：PDF、DOCX、TXT
+        - 🔍 使用混合搜尋（BM25 + 向量檢索）提升檢索準確度
+        - 🎯 可選重排序功能，進一步優化結果
+        - 🧠 支持語義分塊，保持語義完整性
+        - 🌐 自動檢測文檔類型並調整回答風格
         
         **LLM 使用策略：**
         - 🥇 **優先使用 Groq API**：如果配置了 API 金鑰，優先使用 Groq（速度快、質量高）
@@ -1295,7 +1299,11 @@ def _create_private_file_rag_interface():
         """
     )
     
+    # 對話歷史狀態
+    chat_history = gr.State(value=[])
+    
     with gr.Row():
+        # 左側：文件上傳和設置
         with gr.Column(scale=1):
             # 文件上傳區域
             file_upload = gr.File(
@@ -1304,74 +1312,89 @@ def _create_private_file_rag_interface():
                 file_types=[".pdf", ".docx", ".doc", ".txt"]
             )
             
-            # 處理選項
-            use_semantic_chunking = gr.Checkbox(
-                label="使用語義分塊（推薦）",
-                value=False,
-                info="語義分塊能保持語義完整性，但處理時間較長"
-            )
-            
-            # 分塊參數調整（字符分塊模式）
-            gr.Markdown("**📏 字符分塊參數調整（僅在未使用語義分塊時有效）**")
-            chunk_size_slider = gr.Slider(
-                minimum=200,
-                maximum=1500,
-                value=500,  # 預設改為 500，提供更細的粒度
-                step=50,
-                label="分塊大小（字符數）",
-                info="較小的值提供更細的粒度，較大的值包含更多上下文。建議：300-800"
-            )
-            chunk_overlap_slider = gr.Slider(
-                minimum=0,
-                maximum=300,
-                value=100,  # 預設改為 100，約為 chunk_size 的 20%
-                step=25,
-                label="分塊重疊（字符數）",
-                info="重疊可以保持上下文連貫性。建議：chunk_size 的 15-25%"
-            )
-            
-            # 語義分塊參數調整（僅在語義分塊模式下有效）
-            gr.Markdown("**🔬 語義分塊參數調整（僅在使用語義分塊時有效）**")
-            semantic_threshold_slider = gr.Slider(
-                minimum=0.5,
-                maximum=2.5,
-                value=1.0,  # 預設改為 1.0，提供更細的粒度（原為 1.5）
-                step=0.1,
-                label="語義分塊閾值（敏感度）",
-                info="較小的值會產生更多、更細的 chunks。建議：0.8-1.2（細粒度），1.2-1.8（中等），1.8-2.5（粗粒度）"
-            )
-            semantic_min_chunk_slider = gr.Slider(
-                minimum=50,
-                maximum=300,
-                value=100,
-                step=25,
-                label="最小分塊大小（字符數）",
-                info="小於此大小的 chunks 會被合併到相鄰的 chunks。建議：50-200"
-            )
-            
-            # 按鈕
+            # 處理按鈕
             with gr.Row():
                 process_btn = gr.Button("📝 處理文件", variant="primary", scale=1)
-                clear_files_btn = gr.Button("🗑️ 清除", variant="secondary", scale=1)
+                clear_files_btn = gr.Button("🗑️ 清除所有", variant="secondary", scale=1)
             
-            # 狀態顯示
+            # 處理狀態
             process_status = gr.Textbox(
                 label="📊 處理狀態",
                 value="等待上傳文件...",
                 interactive=False,
-                lines=3
-            )
-        
-        with gr.Column(scale=1):
-            # 問題輸入
-            query_input = gr.Textbox(
-                label="❓ 請輸入您的問題",
-                placeholder="例如：這份文檔的主要內容是什麼？",
-                lines=5
+                lines=2
             )
             
-            # 查詢選項
-            with gr.Row():
+            # 設置區域（使用 Accordion 摺疊）
+            with gr.Accordion("⚙️ 進階設置", open=False):
+                # 處理選項
+                use_semantic_chunking = gr.Checkbox(
+                    label="使用語義分塊（推薦）",
+                    value=False,
+                    info="語義分塊能保持語義完整性，但處理時間較長"
+                )
+                
+                # 分塊參數調整（字符分塊模式）
+                gr.Markdown("**📏 字符分塊參數（僅在未使用語義分塊時有效）**")
+                chunk_size_slider = gr.Slider(
+                    minimum=200,
+                    maximum=1500,
+                    value=500,
+                    step=50,
+                    label="分塊大小（字符數）",
+                    info="建議：300-800"
+                )
+                chunk_overlap_slider = gr.Slider(
+                    minimum=0,
+                    maximum=300,
+                    value=100,
+                    step=25,
+                    label="分塊重疊（字符數）",
+                    info="建議：chunk_size 的 15-25%"
+                )
+                
+                # 語義分塊參數調整（僅在語義分塊模式下有效）
+                gr.Markdown("**🔬 語義分塊參數（僅在使用語義分塊時有效）**")
+                semantic_threshold_slider = gr.Slider(
+                    minimum=0.5,
+                    maximum=2.5,
+                    value=1.0,
+                    step=0.1,
+                    label="語義分塊閾值（敏感度）",
+                    info="建議：0.8-1.2（細粒度）"
+                )
+                semantic_min_chunk_slider = gr.Slider(
+                    minimum=50,
+                    maximum=300,
+                    value=100,
+                    step=25,
+                    label="最小分塊大小（字符數）",
+                    info="建議：50-200"
+                )
+                
+                # RAG 方法選擇
+                gr.Markdown("**🎯 RAG 方法選擇**")
+                enable_adaptive_selection = gr.Checkbox(
+                    label="自動選擇最佳 RAG 方法（推薦）",
+                    value=True,
+                    info="系統會根據查詢和文件特征自動選擇最合適的 RAG 方法"
+                )
+                manual_rag_method = gr.Dropdown(
+                    choices=[
+                        "basic",
+                        "subquery",
+                        "hyde",
+                        "step_back",
+                        "hybrid_subquery_hyde",
+                        "triple_hybrid"
+                    ],
+                    value="basic",
+                    label="手動選擇 RAG 方法",
+                    info="僅在自動選擇關閉時生效",
+                    visible=False
+                )
+                
+                # 查詢選項
                 top_k_slider = gr.Slider(
                     minimum=1,
                     maximum=10,
@@ -1383,33 +1406,196 @@ def _create_private_file_rag_interface():
                     label="使用 LLM 生成回答",
                     value=True
                 )
+        
+        # 右側：對話界面
+        with gr.Column(scale=2):
+            # Chatbot 組件
+            # #region agent log
+            log_path = "/Users/matthuang/Desktop/Deep_Agentic_AI_Tool/.cursor/debug.log"
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    log_entry = {
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "A",
+                        "location": "gradio_interface.py:1409",
+                        "message": "Before Chatbot creation",
+                        "data": {
+                            "gradio_version": gr.__version__ if hasattr(gr, '__version__') else "unknown"
+                        },
+                        "timestamp": int(time.time() * 1000)
+                    }
+                    f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+            except:
+                pass
+            # #endregion
             
-            # 查詢按鈕
-            query_btn = gr.Button("🔍 查詢", variant="primary", scale=1)
+            # 創建 Chatbot（移除不支持的參數：show_copy_button 和 avatar_images）
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    log_entry = {
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "A",
+                        "location": "gradio_interface.py:1430",
+                        "message": "Creating Chatbot with minimal params",
+                        "data": {"params": ["label", "height"]},
+                        "timestamp": int(time.time() * 1000)
+                    }
+                    f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+            except:
+                pass
+            # #endregion
+            
+            try:
+                chatbot = gr.Chatbot(
+                    label="💬 對話",
+                    height=500
+                )
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        log_entry = {
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "A",
+                            "location": "gradio_interface.py:1448",
+                            "message": "Chatbot created successfully",
+                            "data": {"success": True},
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+                except:
+                    pass
+                # #endregion
+            except Exception as e:
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        log_entry = {
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "A",
+                            "location": "gradio_interface.py:1460",
+                            "message": "Chatbot creation failed",
+                            "data": {
+                                "error_type": type(e).__name__,
+                                "error_message": str(e)
+                            },
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+                except:
+                    pass
+                # #endregion
+                raise
+            
+            # 輸入框
+            msg = gr.Textbox(
+                label="輸入問題",
+                placeholder="輸入您的問題，按 Enter 發送...",
+                lines=2,
+                scale=4
+            )
+            
+            # 按鈕區域
+            with gr.Row():
+                submit_btn = gr.Button("📤 發送", variant="primary", scale=1)
+                clear_chat_btn = gr.Button("🗑️ 清除對話", variant="secondary", scale=1)
             
             # 查詢狀態
             query_status = gr.Textbox(
-                label="📊 查詢狀態",
+                label="📊 狀態",
                 value="等待查詢...",
                 interactive=False,
-                lines=2
+                lines=1
             )
     
-    with gr.Row():
-        # 回答顯示
-        answer_display = gr.Textbox(
-            label="💬 AI 回答",
-            lines=15,
-            interactive=False
-        )
+    # 輔助函數：轉換 Gradio 歷史格式（dict）和 RAG 歷史格式（tuple）
+    def history_dict_to_tuple(history_dict):
+        """
+        將 Gradio 歷史格式（List[Dict]）轉換為 RAG 歷史格式（List[Tuple[str, str]]）
+        
+        Args:
+            history_dict: Gradio 格式的歷史，每個元素為 {"role": "user"/"assistant", "content": "..."}
+        
+        Returns:
+            RAG 格式的歷史，每個元素為 (user_message, assistant_message)
+        """
+        if not history_dict:
+            return []
+        
+        conversation_history = []
+        current_user_msg = None
+        
+        for msg in history_dict:
+            if isinstance(msg, dict):
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                
+                if role == "user":
+                    current_user_msg = content
+                elif role == "assistant" and current_user_msg is not None:
+                    conversation_history.append((current_user_msg, content))
+                    current_user_msg = None
+            elif isinstance(msg, tuple) and len(msg) == 2:
+                # 如果已經是 tuple 格式，直接使用（向後兼容）
+                conversation_history.append(msg)
+        
+        return conversation_history
     
-    with gr.Row():
-        # 檢索結果顯示
-        results_display = gr.Textbox(
-            label="📄 檢索到的文檔片段（參考來源）",
-            lines=10,
-            interactive=False
-        )
+    def history_tuple_to_dict(history_tuple):
+        """
+        將 RAG 歷史格式（List[Tuple[str, str]]）轉換為 Gradio 歷史格式（List[Dict]）
+        
+        Args:
+            history_tuple: RAG 格式的歷史，每個元素為 (user_message, assistant_message)
+        
+        Returns:
+            Gradio 格式的歷史，每個元素為 {"role": "user"/"assistant", "content": "..."}
+        """
+        if not history_tuple:
+            return []
+        
+        history_dict = []
+        for msg in history_tuple:
+            if isinstance(msg, dict):
+                # 如果已經是 dict 格式，直接使用
+                history_dict.append(msg)
+            elif isinstance(msg, tuple) and len(msg) == 2:
+                # 轉換 tuple 為 dict 格式
+                user_msg, assistant_msg = msg
+                history_dict.append({"role": "user", "content": user_msg})
+                history_dict.append({"role": "assistant", "content": assistant_msg})
+        
+        return history_dict
+    
+    def ensure_dict_format(history):
+        """
+        確保歷史是 Gradio dict 格式
+        
+        Args:
+            history: 歷史列表（可能是 dict 或 tuple 格式，也可能是 None）
+        
+        Returns:
+            Gradio 格式的歷史（List[Dict]）
+        """
+        if not history:
+            return []
+        
+        # 檢查第一個元素的類型來判斷格式
+        try:
+            if isinstance(history[0], dict):
+                return history
+            elif isinstance(history[0], tuple):
+                return history_tuple_to_dict(history)
+            else:
+                # 未知格式，返回空列表
+                return []
+        except (IndexError, TypeError):
+            # 如果 history 為空或無法索引，返回空列表
+            return []
     
     # 事件處理函數
     def process_files(files, use_semantic, chunk_size, chunk_overlap, semantic_threshold, semantic_min_chunk):
@@ -1484,87 +1670,173 @@ def _create_private_file_rag_interface():
             traceback.print_exc()
             return error_msg, "❌ 處理失敗"
     
-    def query_rag(query, top_k, use_llm):
-        """查詢 RAG 系統"""
-        if not query or not query.strip():
-            return "❌ 請輸入問題", "", "等待查詢..."
+    def query_rag_stream(message, history, top_k, use_llm, enable_adaptive, manual_method):
+        """
+        查詢 RAG 系統（對話式，流式輸出）
+        
+        Args:
+            message: 當前用戶消息
+            history: 對話歷史（Gradio 格式：List[Dict] 或 List[Tuple[str, str]]）
+            top_k: 返回結果數量
+            use_llm: 是否使用 LLM 生成回答
+            enable_adaptive: 是否啟用自動選擇
+            manual_method: 手動選擇的方法（僅在自動選擇關閉時生效）
+        
+        Yields:
+            Tuple[history, status_msg]: 逐步更新的對話歷史和狀態訊息
+        """
+        if not message or not message.strip():
+            yield history, "❌ 請輸入問題"
+            return
         
         try:
             # 獲取 RAG 實例
             rag = get_private_rag_instance()
             
             if not rag.is_initialized:
-                return "❌ RAG 系統尚未初始化，請先處理文件", "", "RAG 系統未初始化"
+                error_msg = "❌ RAG 系統尚未初始化，請先處理文件"
+                # 確保 history 是 dict 格式
+                history = ensure_dict_format(history)
+                history.append({"role": "user", "content": message})
+                history.append({"role": "assistant", "content": error_msg})
+                yield history, error_msg
+                return
             
-            # 執行查詢
-            result = rag.query(
-                query=query,
-                top_k=int(top_k),
-                use_llm=use_llm
-            )
+            # 設置 RAG 方法選擇參數
+            rag.enable_adaptive_selection = enable_adaptive
+            if not enable_adaptive:
+                rag.selected_rag_method = manual_method
+            else:
+                rag.selected_rag_method = None
             
-            if not result.get("success"):
-                error = result.get("error", "未知錯誤")
-                return f"❌ 查詢失敗: {error}", "", f"❌ {error}"
+            # 準備對話歷史：轉換為 RAG 需要的 tuple 格式
+            conversation_history = history_dict_to_tuple(history) if history else []
             
-            # 格式化回答
-            answer = result.get("answer", "")
-            if not answer:
-                answer = "⚠️ LLM 未生成回答（可能 LLM 服務未啟動）\n\n您可以查看下方的檢索結果。"
+            # 確保 history 是 dict 格式並添加用戶消息
+            history = ensure_dict_format(history)
+            history.append({"role": "user", "content": message})
             
-            # 格式化檢索結果
-            results = result.get("results", [])
-            results_text = ""
-            if results:
-                results_text = "檢索到的文檔片段：\n" + "="*60 + "\n\n"
-                for i, r in enumerate(results, 1):
-                    metadata = r.get("metadata", {})
-                    title = metadata.get("title", "未知標題")
-                    file_path = metadata.get("file_path", "")
-                    score = r.get("rerank_score") or r.get("hybrid_score") or r.get("score", 0)
+            # 執行查詢（傳入對話歷史，使用流式輸出）
+            if use_llm:
+                # 使用流式查詢
+                answer_generator = rag.query_stream(
+                    query=message,
+                    top_k=int(top_k),
+                    conversation_history=conversation_history
+                )
+                
+                # 初始化回答
+                accumulated_answer = ""
+                history_with_user = history.copy()
+                final_result = {}
+                
+                # 逐步接收流式回答
+                for chunk in answer_generator:
+                    if chunk.get("success") is False:
+                        error = chunk.get("error", "未知錯誤")
+                        error_msg = f"❌ 查詢失敗: {error}"
+                        history_with_user.append({"role": "assistant", "content": error_msg})
+                        yield history_with_user, error_msg
+                        return
                     
-                    results_text += f"片段 {i}:\n"
-                    results_text += f"  來源: {title}\n"
-                    if file_path:
-                        results_text += f"  文件: {os.path.basename(file_path)}\n"
-                    results_text += f"  相關性分數: {score:.4f}\n"
-                    results_text += f"  內容預覽: {r.get('content', '')[:300]}...\n"
-                    results_text += "\n" + "-"*60 + "\n\n"
-            
-            stats = result.get("stats", {})
-            status_msg = f"✅ 查詢完成"
-            if stats:
-                total_time = stats.get("total_time", 0)
-                if total_time > 0:
-                    status_msg += f"（耗時: {total_time:.2f}秒）"
-            
-            return answer, results_text, status_msg
+                    # 保存最後一個 chunk 作為最終結果
+                    final_result = chunk
+                    
+                    # 獲取新的回答片段
+                    new_answer = chunk.get("answer", "")
+                    if new_answer:
+                        # 累積回答
+                        accumulated_answer = new_answer
+                        # 更新歷史
+                        history_with_answer = history_with_user.copy()
+                        history_with_answer.append({"role": "assistant", "content": accumulated_answer})
+                        yield history_with_answer, "🔄 正在生成回答..."
+                
+                # 獲取最終結果（包含統計信息）
+                rag_method = final_result.get("rag_method", "basic")
+                stats = final_result.get("stats", {})
+                status_msg = f"✅ 查詢完成（方法: {rag_method.upper()}）"
+                if stats:
+                    total_time = stats.get("total_time", 0)
+                    if total_time > 0:
+                        status_msg += f" | 耗時: {total_time:.2f}秒"
+                
+                # 確保最終回答完整
+                if accumulated_answer:
+                    history_with_answer = history_with_user.copy()
+                    history_with_answer.append({"role": "assistant", "content": accumulated_answer})
+                    yield history_with_answer, status_msg
+                else:
+                    error_msg = "⚠️ LLM 未生成回答（可能 LLM 服務未啟動）"
+                    history_with_answer = history_with_user.copy()
+                    history_with_answer.append({"role": "assistant", "content": error_msg})
+                    yield history_with_answer, status_msg
+            else:
+                # 不使用 LLM，直接返回檢索結果
+                result = rag.query(
+                    query=message,
+                    top_k=int(top_k),
+                    use_llm=False,
+                    conversation_history=conversation_history
+                )
+                
+                if not result.get("success"):
+                    error = result.get("error", "未知錯誤")
+                    error_msg = f"❌ 查詢失敗: {error}"
+                    history.append({"role": "assistant", "content": error_msg})
+                    yield history, error_msg
+                    return
+                
+                # 格式化檢索結果
+                formatted_context = result.get("formatted_context", "")
+                answer = f"📄 檢索到的相關內容：\n\n{formatted_context}"
+                
+                # 獲取 RAG 方法信息
+                rag_method = result.get("rag_method", "basic")
+                stats = result.get("stats", {})
+                status_msg = f"✅ 查詢完成（方法: {rag_method.upper()}）"
+                if stats:
+                    total_time = stats.get("total_time", 0)
+                    if total_time > 0:
+                        status_msg += f" | 耗時: {total_time:.2f}秒"
+                
+                history.append({"role": "assistant", "content": answer})
+                yield history, status_msg
             
         except Exception as e:
             error_msg = f"❌ 查詢時發生錯誤: {str(e)}"
             print(error_msg)
             import traceback
             traceback.print_exc()
-            return error_msg, "", f"❌ {error_msg}"
+            # 確保 history 是 dict 格式
+            history = ensure_dict_format(history)
+            if not any(msg.get("role") == "user" and msg.get("content") == message for msg in history):
+                history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": error_msg})
+            yield history, error_msg
+    
+    def clear_chat():
+        """清除對話歷史（不重置 RAG 系統）"""
+        return [], "對話已清除"
     
     def clear_all():
-        """清除所有內容"""
+        """清除所有內容（包括 RAG 系統）"""
         from ..rag.private_file_rag import reset_private_rag_instance
         reset_private_rag_instance()
+        empty_history = []
         return (
             None,  # file_upload
             False,  # use_semantic_chunking
-            500,  # chunk_size_slider（恢復預設值：更細的粒度）
-            100,  # chunk_overlap_slider（恢復預設值：約為 chunk_size 的 20%）
-            1.0,  # semantic_threshold_slider（恢復預設值：更細的粒度）
-            100,  # semantic_min_chunk_slider（恢復預設值）
+            500,  # chunk_size_slider
+            100,  # chunk_overlap_slider
+            1.0,  # semantic_threshold_slider
+            100,  # semantic_min_chunk_slider
+            True,  # enable_adaptive_selection
+            "basic",  # manual_rag_method
             "等待上傳文件...",  # process_status
-            "",  # query_input
-            3,  # top_k_slider
-            True,  # use_llm_checkbox
+            empty_history,  # chatbot (對話歷史)
+            empty_history,  # chat_history (狀態)
             "等待查詢...",  # query_status
-            "",  # answer_display
-            ""  # results_display
         )
     
     # 綁定事件
@@ -1581,12 +1853,52 @@ def _create_private_file_rag_interface():
         outputs=[process_status, query_status]
     )
     
-    query_btn.click(
-        fn=query_rag,
-        inputs=[query_input, top_k_slider, use_llm_checkbox],
-        outputs=[answer_display, results_display, query_status]
+    # 自動選擇開關時顯示/隱藏手動選擇下拉菜單
+    def toggle_manual_method(enable_adaptive):
+        return gr.update(visible=not enable_adaptive)
+    
+    enable_adaptive_selection.change(
+        fn=toggle_manual_method,
+        inputs=[enable_adaptive_selection],
+        outputs=[manual_rag_method]
     )
     
+    # 提交消息（按鈕點擊或 Enter 鍵）
+    def submit_message(message, history, top_k, use_llm, enable_adaptive, manual_method):
+        """提交消息並更新對話歷史（流式輸出）"""
+        if not message or not message.strip():
+            # 確保 history 是 dict 格式
+            history = ensure_dict_format(history)
+            return history, history, "", "等待查詢..."
+        # 清空輸入框並執行流式查詢
+        for new_history, status in query_rag_stream(message, history, top_k, use_llm, enable_adaptive, manual_method):
+            yield new_history, new_history, "", status
+    
+    # 綁定提交按鈕和 Enter 鍵
+    submit_btn.click(
+        fn=submit_message,
+        inputs=[msg, chat_history, top_k_slider, use_llm_checkbox, enable_adaptive_selection, manual_rag_method],
+        outputs=[chatbot, chat_history, msg, query_status]
+    )
+    
+    msg.submit(
+        fn=submit_message,
+        inputs=[msg, chat_history, top_k_slider, use_llm_checkbox, enable_adaptive_selection, manual_rag_method],
+        outputs=[chatbot, chat_history, msg, query_status]
+    )
+    
+    # 清除對話按鈕（需要更新 chat_history 狀態）
+    def clear_chat_with_state():
+        """清除對話歷史並更新狀態"""
+        empty_history = []
+        return empty_history, empty_history, "對話已清除"
+    
+    clear_chat_btn.click(
+        fn=clear_chat_with_state,
+        outputs=[chatbot, chat_history, query_status]
+    )
+    
+    # 清除所有按鈕
     clear_files_btn.click(
         fn=clear_all,
         outputs=[
@@ -1596,25 +1908,13 @@ def _create_private_file_rag_interface():
             chunk_overlap_slider,
             semantic_threshold_slider,
             semantic_min_chunk_slider,
+            enable_adaptive_selection,
+            manual_rag_method,
             process_status,
-            query_input,
-            top_k_slider,
-            use_llm_checkbox,
-            query_status,
-            answer_display,
-            results_display
+            chatbot,  # 更新 chatbot 顯示
+            chat_history,  # 更新 chat_history 狀態
+            query_status
         ]
-    )
-    
-    # 示例問題
-    gr.Examples(
-        examples=[
-            "這份文檔的主要內容是什麼？",
-            "文檔中提到了哪些關鍵概念？",
-            "總結文檔的核心觀點",
-            "文檔中有哪些重要的數據或統計信息？"
-        ],
-        inputs=query_input
     )
     
     # 頁腳說明
@@ -1624,26 +1924,20 @@ def _create_private_file_rag_interface():
         **使用說明：**
         1. 支持的文件格式：PDF、DOCX、DOC、TXT
         2. 可以同時上傳多個文件，系統會合併處理
-        3. 語義分塊模式能保持語義完整性，但處理時間較長
-        4. 字符分塊模式處理速度快，適合快速測試
+        3. 處理文件後，在對話框中輸入問題即可開始對話
+        4. 支持多輪對話，AI 會記住之前的對話內容
+        5. 點擊「清除對話」只清除對話歷史，不重置 RAG 系統
+        6. 點擊「清除所有」會重置整個 RAG 系統和對話歷史
         
-        **分塊粒度調整：**
+        **對話功能：**
+        - 💬 支持多輪對話，AI 會根據之前的對話內容提供更連貫的回答
+        - 🔄 RAG 檢索仍基於當前問題，但 LLM 生成回答時會考慮對話歷史
+        - 📝 對話歷史最多保留最近 10 輪，避免上下文過長
         
-        **字符分塊參數**（僅在未使用語義分塊時有效）：
-        - 分塊大小：較小的值（300-500）提供更細的粒度，檢索更精確
-        - 分塊重疊：建議設為分塊大小的 15-25%，可以保持上下文連貫性
-        - 預設值：分塊大小 500，重疊 100（已優化為更細的粒度）
-        
-        **語義分塊參數**（僅在使用語義分塊時有效）：
-        - 語義分塊閾值：控制分塊的敏感度
-          * 0.8-1.2：細粒度，產生更多、更小的 chunks（推薦，已設為預設 1.0）
-          * 1.2-1.8：中等粒度，平衡精確度和上下文
-          * 1.8-2.5：粗粒度，產生更少、更大的 chunks
-        - 最小分塊大小：小於此大小的 chunks 會被合併
-          * 建議值：50-200 字符
-          * 較小的值保留更多細節，但可能產生過多小 chunks
-        
-        7. 如果 LLM 服務未啟動，可以查看檢索結果手動分析
+        **分塊設置：**
+        - 語義分塊模式能保持語義完整性，但處理時間較長
+        - 字符分塊模式處理速度快，適合快速測試
+        - 詳細參數說明請展開「⚙️ 進階設置」
         
         **技術細節：**
         - 使用混合搜尋（BM25 + 向量檢索）提升檢索準確度
@@ -1654,7 +1948,7 @@ def _create_private_file_rag_interface():
         **注意事項：**
         - 首次使用需要下載 Embedding 模型（可能需要一些時間）
         - 確保 Learn_RAG 項目在正確的位置
-        - 如果使用 LLM 生成回答，需要確保 Ollama 服務正在運行
+        - 如果使用 LLM 生成回答，需要確保 LLM 服務正在運行
         """
     )
 
