@@ -19,3 +19,6 @@ token.json
 
 *test_check*
 .DS_Store
+
+.cursor/*
+chroma_db*/*
