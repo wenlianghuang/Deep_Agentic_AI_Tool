@@ -49,6 +49,13 @@ GROQ_MAX_TOKENS = 2048
 GROQ_TEMPERATURE = 0.7
 USE_GROQ_FIRST = True  # 是否优先使用 Groq API
 
+# Ollama 配置
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")  # Llama 3.2 3B
+OLLAMA_MAX_TOKENS = 2048
+OLLAMA_TEMPERATURE = 0.7
+USE_OLLAMA = os.getenv("USE_OLLAMA", "false").lower() == "true"  # 是否啟用 Ollama
+
 # Email 配置 - 使用 Gmail API
 EMAIL_SENDER = "matthuang46@gmail.com"
 # Gmail API 配置

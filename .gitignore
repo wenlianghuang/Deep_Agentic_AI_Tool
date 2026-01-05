@@ -19,3 +19,12 @@ token.json
 
 *test_check*
 .DS_Store
+
+<<<<<<< HEAD
+.cursor/*
+chroma_db*/*
+=======
+chroma_db*/
+
+.cursor/*
+>>>>>>> 8862b07082bc878942f9e22816227a2e9a718b23
