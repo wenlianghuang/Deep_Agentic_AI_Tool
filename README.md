@@ -66,11 +66,9 @@
 # 使用 uv（推薦）
 uv sync
 
-<<<<<<< HEAD
 # 或使用 pip
 pip install -e .
 ```
-=======
 3. **Set up environment variables** (create a `.env` file in the root directory):
    ```env
    # Optional: Groq API (for faster inference)
@@ -88,7 +86,6 @@ pip install -e .
    GMAIL_CREDENTIALS_FILE=credentials.json
    GMAIL_TOKEN_FILE=token.json
    ```
->>>>>>> 5beccbe9dfa0ef53e4123976ad54e2f1c28b72f8
 
 ### 2. 環境變數配置
 
@@ -240,7 +237,6 @@ Deep_Agentic_AI_Tool/
 3. 在 `get_tools_list()` 中添加工具
 4. 代理會自動發現並使用新工具
 
-<<<<<<< HEAD
 ### 修改代理邏輯
 
 - **規劃邏輯**：編輯 `deep_agent_rag/agents/planner.py`
@@ -252,7 +248,6 @@ Deep_Agentic_AI_Tool/
 編輯 `deep_agent_rag/ui/gradio_interface.py` 修改 Web 界面。
 
 **詳細開發指南請參考：[系統架構](ARCHITECTURE.md#開發指南)**
-=======
 The system supports multiple LLM backends with automatic fallback (priority order):
 
 1. **Primary**: Groq API (fastest, requires API key)
@@ -286,7 +281,6 @@ ollama serve
 ```
 
 ## ⚙️ Configuration
->>>>>>> 5beccbe9dfa0ef53e4123976ad54e2f1c28b72f8
 
 ## 📦 主要依賴
 
@@ -344,9 +338,7 @@ ollama serve
 
 ## 📧 聯絡
 
-<<<<<<< HEAD
 [添加聯絡資訊]
-=======
 - **LangChain**: Agent framework and tool integration
 - **LangGraph**: Agent orchestration and workflow management
 - **MLX/MLX-LM**: Local model inference (Apple Silicon optimized)
@@ -356,16 +348,9 @@ ollama serve
 - **Tavily**: Web search API
 - **yfinance**: Stock data retrieval
 - **Google API Client**: Gmail API integration
->>>>>>> 5beccbe9dfa0ef53e4123976ad54e2f1c28b72f8
 
 ## 🙏 致謝
 
-<<<<<<< HEAD
-- **LangChain & LangGraph**：優秀的代理框架
-- **MLX Team**：高效的本地模型推理
-- **Qwen Team**：Qwen2.5 模型
-- **Jina AI**：嵌入模型
-=======
 ### MLX Model Issues
 
 - **Model not loading**: Ensure you have sufficient disk space and memory
@@ -412,7 +397,6 @@ ollama serve
 - **MLX Team**: For efficient local model inference
 - **Qwen Team**: For the Qwen2.5 model
 - **Jina AI**: For the embedding model
->>>>>>> 5beccbe9dfa0ef53e4123976ad54e2f1c28b72f8
 
 ---
 
