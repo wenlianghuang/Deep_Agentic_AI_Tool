@@ -22,3 +22,6 @@
 {"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "private_file_rag_interface.py:1409", "message": "Before Chatbot creation", "data": {"gradio_version": "6.2.0"}, "timestamp": 1767604019268}
 {"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "private_file_rag_interface.py:1430", "message": "Creating Chatbot with minimal params", "data": {"params": ["label", "height"]}, "timestamp": 1767604019268}
 {"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "private_file_rag_interface.py:1448", "message": "Chatbot created successfully", "data": {"success": true}, "timestamp": 1767604019269}
+{"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "private_file_rag_interface.py:1409", "message": "Before Chatbot creation", "data": {"gradio_version": "6.2.0"}, "timestamp": 1767607831462}
+{"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "private_file_rag_interface.py:1430", "message": "Creating Chatbot with minimal params", "data": {"params": ["label", "height"]}, "timestamp": 1767607831462}
+{"sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "private_file_rag_interface.py:1448", "message": "Chatbot created successfully", "data": {"success": true}, "timestamp": 1767607831462}
