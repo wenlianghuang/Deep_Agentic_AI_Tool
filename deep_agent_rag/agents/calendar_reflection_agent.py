@@ -5,6 +5,7 @@ Calendar Reflection Agent
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from ..utils.llm_utils import get_llm, handle_groq_error
+from ..guidelines import get_guideline
 
 
 def detect_language(text: str) -> str:
@@ -49,6 +50,9 @@ def reflect_on_calendar_event(
         # 獲取 LLM
         llm = get_llm()
         
+        # 【Parlant 整合】獲取事件反思評估指南
+        event_reflection_guideline = get_guideline("calendar", "event_reflection")
+        
         # 格式化事件資訊
         summary = event_dict.get("summary", "")
         start_datetime = event_dict.get("start_datetime", "")
@@ -58,9 +62,10 @@ def reflect_on_calendar_event(
         attendees = event_dict.get("attendees", "")
         
         if user_language == 'zh':
-            # 中文反思提示模板
+            # 中文反思提示模板（整合指南）
             reflection_prompt_template = (
                 "你是一位專業的行事曆事件質量評估專家。請仔細評估以下生成的行事曆事件，並提供詳細的反思和改進建議。\n\n"
+                "【事件反思評估指南】\n{event_reflection_guideline}\n\n"
                 "【用戶原始提示】\n{prompt}\n\n"
                 "【生成的事件資訊】\n"
                 "事件標題：{summary}\n"
@@ -69,13 +74,7 @@ def reflect_on_calendar_event(
                 "事件描述：{description}\n"
                 "事件地點：{location}\n"
                 "參與者：{attendees}\n\n"
-                "請從以下幾個方面進行評估：\n"
-                "1. **資訊完整性**：事件是否完整回應了用戶的提示？是否遺漏重要信息（如時間、地點、參與者）？\n"
-                "2. **時間合理性**：開始和結束時間是否合理？持續時間是否適當？\n"
-                "3. **描述清晰度**：事件描述是否清晰、詳細？是否包含必要的議程或目的說明？\n"
-                "4. **標題準確性**：事件標題是否準確反映事件內容？是否簡潔明瞭？\n"
-                "5. **參與者正確性**：參與者郵箱是否正確提取？格式是否正確？\n"
-                "6. **地點適配性**：如果有地點，是否與事件類型匹配？\n\n"
+                "請嚴格遵循上述指南進行評估。\n\n"
                 "請按照以下格式輸出：\n"
                 "【反思評估】\n"
                 "(詳細評估事件在各個方面的表現，指出優點和不足)\n\n"
@@ -85,9 +84,10 @@ def reflect_on_calendar_event(
                 "(回答：是/否，並簡要說明原因。只有在事件有嚴重問題（如遺漏關鍵信息、時間不合理、描述不清楚）時才回答「是」)"
             )
         else:
-            # 英文反思提示模板
+            # 英文反思提示模板（整合指南）
             reflection_prompt_template = (
                 "You are a professional calendar event quality assessment expert. Please carefully evaluate the following generated calendar event and provide detailed reflection and improvement suggestions.\n\n"
+                "【Event Reflection Assessment Guidelines】\n{event_reflection_guideline}\n\n"
                 "【User's Original Prompt】\n{prompt}\n\n"
                 "【Generated Event Information】\n"
                 "Event Title: {summary}\n"
@@ -96,13 +96,7 @@ def reflect_on_calendar_event(
                 "Event Description: {description}\n"
                 "Event Location: {location}\n"
                 "Attendees: {attendees}\n\n"
-                "Please evaluate from the following aspects:\n"
-                "1. **Information Completeness**: Does the event fully address the user's prompt? Are there any missing important information (such as time, location, attendees)?\n"
-                "2. **Time Reasonableness**: Are the start and end times reasonable? Is the duration appropriate?\n"
-                "3. **Description Clarity**: Is the event description clear and detailed? Does it include necessary agenda or purpose explanation?\n"
-                "4. **Title Accuracy**: Does the event title accurately reflect the event content? Is it concise and clear?\n"
-                "5. **Attendee Correctness**: Are the attendee emails correctly extracted? Is the format correct?\n"
-                "6. **Location Appropriateness**: If there is a location, does it match the event type?\n\n"
+                "Please strictly follow the guidelines above for assessment.\n\n"
                 "Please output in the following format:\n"
                 "【Reflection Assessment】\n"
                 "(Detailed assessment of the event's performance in various aspects, pointing out strengths and weaknesses)\n\n"
@@ -124,7 +118,8 @@ def reflect_on_calendar_event(
                 "end_datetime": end_datetime,
                 "description": description,
                 "location": location,
-                "attendees": attendees
+                "attendees": attendees,
+                "event_reflection_guideline": event_reflection_guideline
             })
         except Exception as e:
             # 處理 Groq API 錯誤
@@ -139,7 +134,8 @@ def reflect_on_calendar_event(
                     "end_datetime": end_datetime,
                     "description": description,
                     "location": location,
-                    "attendees": attendees
+                    "attendees": attendees,
+                    "event_reflection_guideline": event_reflection_guideline
                 })
             else:
                 raise
@@ -196,6 +192,11 @@ def generate_improved_calendar_event(
         # 獲取 LLM
         llm = get_llm()
         
+        # 【Parlant 整合】獲取事件改進生成指南
+        event_improvement_guideline = get_guideline("calendar", "event_improvement")
+        event_creation_guideline = get_guideline("calendar", "event_creation")
+        time_parsing_guideline = get_guideline("calendar", "time_parsing")
+        
         # 格式化原始事件資訊
         original_summary = original_event_dict.get("summary", "")
         original_start = original_event_dict.get("start_datetime", "")
@@ -207,6 +208,9 @@ def generate_improved_calendar_event(
         if user_language == 'zh':
             improvement_prompt_template = (
                 "你是一位專業的行事曆事件解析助手。請根據改進建議，重新生成一個更好的行事曆事件。\n\n"
+                "【事件改進生成指南】\n{event_improvement_guideline}\n\n"
+                "【事件創建指南】\n{event_creation_guideline}\n\n"
+                "【時間解析指南】\n{time_parsing_guideline}\n\n"
                 "【用戶原始提示】\n{prompt}\n\n"
                 "【原始事件資訊】\n"
                 "事件標題：{original_summary}\n"
@@ -216,22 +220,28 @@ def generate_improved_calendar_event(
                 "事件地點：{original_location}\n"
                 "參與者：{original_attendees}\n\n"
                 "【改進建議】\n{improvement_suggestions}\n\n"
-                "請根據改進建議，重新提取和生成事件資訊。"
+                "請嚴格遵循上述指南，根據改進建議重新提取和生成事件資訊。"
                 "確保事件完整、準確、清晰，並充分回應用戶的原始提示。"
                 "請以 JSON 格式輸出，格式如下：\n"
                 "{{\n"
                 '  "summary": "事件標題",\n'
-                '  "date": "日期（如果無法確定則為空字符串）",\n'
-                '  "time": "時間（如果無法確定則為空字符串）",\n'
+                '  "start_datetime": "ISO 8601 格式的開始時間（例如：2026-01-25T14:00:00+08:00），如果無法確定則為空字符串",\n'
+                '  "end_datetime": "ISO 8601 格式的結束時間（例如：2026-01-25T15:00:00+08:00），如果無法確定則為空字符串",\n'
                 '  "description": "事件描述",\n'
                 '  "location": "事件地點（如果沒有則為空字符串）",\n'
-                '  "attendees": "參與者郵箱，多個用逗號分隔（只包含有效的郵箱地址，格式：user@domain.com，如果沒有則為空字符串）"\n'
+                '  "attendees": "參與者郵箱，多個用逗號分隔（只包含有效的郵箱地址，格式：user@domain.com，如果沒有則為空字符串）",\n'
+                '  "date": "原始日期字符串（用於 UI 顯示，例如：明天、2026-01-25）",\n'
+                '  "time": "原始時間字符串（用於 UI 顯示，例如：14:00、下午2點）"\n'
                 "}}\n\n"
+                "重要：start_datetime 和 end_datetime 必須是完整的 ISO 8601 格式。\n"
                 "只輸出 JSON，不要其他內容。請使用中文。"
             )
         else:
             improvement_prompt_template = (
                 "You are a professional calendar event parsing assistant. Please regenerate a better calendar event based on the improvement suggestions.\n\n"
+                "【Event Improvement Generation Guidelines】\n{event_improvement_guideline}\n\n"
+                "【Event Creation Guidelines】\n{event_creation_guideline}\n\n"
+                "【Time Parsing Guidelines】\n{time_parsing_guideline}\n\n"
                 "【User's Original Prompt】\n{prompt}\n\n"
                 "【Original Event Information】\n"
                 "Event Title: {original_summary}\n"
@@ -241,17 +251,20 @@ def generate_improved_calendar_event(
                 "Event Location: {original_location}\n"
                 "Attendees: {original_attendees}\n\n"
                 "【Improvement Suggestions】\n{improvement_suggestions}\n\n"
-                "Please regenerate the event information based on the improvement suggestions."
+                "Please strictly follow the guidelines above and regenerate the event information based on the improvement suggestions."
                 "Ensure the event is complete, accurate, clear, and fully addresses the user's original prompt."
                 "Please output in JSON format as follows:\n"
                 "{{\n"
                 '  "summary": "Event title",\n'
-                '  "date": "Date (empty string if cannot determine)",\n'
-                '  "time": "Time (empty string if cannot determine)",\n'
+                '  "start_datetime": "ISO 8601 formatted start time (e.g., 2026-01-25T14:00:00+08:00), empty string if cannot determine",\n'
+                '  "end_datetime": "ISO 8601 formatted end time (e.g., 2026-01-25T15:00:00+08:00), empty string if cannot determine",\n'
                 '  "description": "Event description",\n'
                 '  "location": "Event location (empty string if not mentioned)",\n'
-                '  "attendees": "Attendee emails, comma-separated (only valid email addresses in format: user@domain.com, empty string if not mentioned)"\n'
+                '  "attendees": "Attendee emails, comma-separated (only valid email addresses in format: user@domain.com, empty string if not mentioned)",\n'
+                '  "date": "Original date string (for UI display, e.g., tomorrow, 2026-01-25)",\n'
+                '  "time": "Original time string (for UI display, e.g., 14:00, 2:00 PM)"\n'
                 "}}\n\n"
+                "Important: start_datetime and end_datetime must be complete ISO 8601 format.\n"
                 "Output only JSON, nothing else. Please use English."
             )
         
@@ -268,7 +281,10 @@ def generate_improved_calendar_event(
                 "original_description": original_description,
                 "original_location": original_location,
                 "original_attendees": original_attendees,
-                "improvement_suggestions": improvement_suggestions
+                "improvement_suggestions": improvement_suggestions,
+                "event_improvement_guideline": event_improvement_guideline,
+                "event_creation_guideline": event_creation_guideline,
+                "time_parsing_guideline": time_parsing_guideline
             })
         except Exception as e:
             fallback_llm = handle_groq_error(e)
@@ -283,7 +299,10 @@ def generate_improved_calendar_event(
                     "original_description": original_description,
                     "original_location": original_location,
                     "original_attendees": original_attendees,
-                    "improvement_suggestions": improvement_suggestions
+                    "improvement_suggestions": improvement_suggestions,
+                    "event_improvement_guideline": event_improvement_guideline,
+                    "event_creation_guideline": event_creation_guideline,
+                    "time_parsing_guideline": time_parsing_guideline
                 })
             else:
                 raise
@@ -306,12 +325,35 @@ def generate_improved_calendar_event(
             print("   ⚠️ [CalendarReflection] JSON 解析失敗，使用原始事件")
             return original_event_dict
         
-        # 解析日期和時間（如果改進版本提供了新的日期時間）
-        from .calendar_agent import parse_datetime
-        date_str = improved_data.get("date", "").strip() or original_event_dict.get("date", "今天")
-        time_str = improved_data.get("time", "").strip() or original_event_dict.get("time", None)
+        # 優先使用 LLM 直接輸出的 ISO 8601 格式日期時間
+        start_datetime = improved_data.get("start_datetime", "").strip()
+        end_datetime = improved_data.get("end_datetime", "").strip()
         
-        start_datetime, end_datetime = parse_datetime(date_str, time_str)
+        # 驗證 ISO 8601 格式
+        def validate_iso8601(dt_str: str) -> bool:
+            """驗證 ISO 8601 格式"""
+            if not dt_str:
+                return False
+            try:
+                from datetime import datetime as dt
+                dt_str_clean = dt_str.replace('+08:00', '+08:00')
+                dt.fromisoformat(dt_str_clean)
+                return True
+            except:
+                return False
+        
+        # 如果 LLM 沒有輸出格式化的日期時間，或格式不正確，使用後備解析
+        if not validate_iso8601(start_datetime) or not validate_iso8601(end_datetime):
+            # 後備：使用 Python 解析邏輯
+            from .calendar_agent import parse_datetime
+            date_str = improved_data.get("date", "").strip() or original_event_dict.get("date", "今天")
+            time_str = improved_data.get("time", "").strip() or original_event_dict.get("time", None)
+            print("   ⚠️ [CalendarReflection] 改進版本未輸出有效的 ISO 8601 格式，使用後備解析邏輯")
+            start_datetime, end_datetime = parse_datetime(date_str, time_str)
+        else:
+            # LLM 已輸出有效格式，提取原始日期時間字符串用於 UI
+            date_str = improved_data.get("date", "").strip() or original_event_dict.get("date", "")
+            time_str = improved_data.get("time", "").strip() or original_event_dict.get("time", "")
         
         # 構建改進後的事件字典
         improved_event_dict = {
