@@ -6,24 +6,17 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from ..utils.llm_utils import get_llm, handle_groq_error
 from ..guidelines import get_guideline
-
-
-def detect_language(text: str) -> str:
-    """
-    檢測文本的主要語言（中文或英文）
-    
-    Args:
-        text: 輸入文本
-    
-    Returns:
-        'zh' 或 'en'
-    """
-    import re
-    chinese_pattern = re.compile(r'[\u4e00-\u9fff]+')
-    if chinese_pattern.search(text):
-        return 'zh'
-    else:
-        return 'en'
+from .calendar_validation import (
+    validate_iso8601,
+    is_datetime_reasonable,
+    build_validation_error_message,
+    request_llm_correction,
+    validate_and_correct_datetime,
+    validate_and_correct_attendees,
+    detect_language,
+    parse_datetime
+)
+from ..tools.calendar_tool import validate_and_clean_emails
 
 
 def reflect_on_calendar_event(
@@ -325,35 +318,40 @@ def generate_improved_calendar_event(
             print("   ⚠️ [CalendarReflection] JSON 解析失敗，使用原始事件")
             return original_event_dict
         
-        # 優先使用 LLM 直接輸出的 ISO 8601 格式日期時間
-        start_datetime = improved_data.get("start_datetime", "").strip()
-        end_datetime = improved_data.get("end_datetime", "").strip()
+        # 【二輪修正機制】驗證並修正改進版本的日期時間
+        # 獲取當前日期時間作為上下文
+        from datetime import datetime
+        current_datetime = datetime.now()
         
-        # 驗證 ISO 8601 格式
-        def validate_iso8601(dt_str: str) -> bool:
-            """驗證 ISO 8601 格式"""
-            if not dt_str:
-                return False
-            try:
-                from datetime import datetime as dt
-                dt_str_clean = dt_str.replace('+08:00', '+08:00')
-                dt.fromisoformat(dt_str_clean)
-                return True
-            except:
-                return False
+        # 合併改進數據和原始數據（優先使用改進數據）
+        merged_data = {
+            "start_datetime": improved_data.get("start_datetime", "").strip(),
+            "end_datetime": improved_data.get("end_datetime", "").strip(),
+            "date": improved_data.get("date", "").strip() or original_event_dict.get("date", ""),
+            "time": improved_data.get("time", "").strip() or original_event_dict.get("time", "")
+        }
         
-        # 如果 LLM 沒有輸出格式化的日期時間，或格式不正確，使用後備解析
-        if not validate_iso8601(start_datetime) or not validate_iso8601(end_datetime):
-            # 後備：使用 Python 解析邏輯
-            from .calendar_agent import parse_datetime
-            date_str = improved_data.get("date", "").strip() or original_event_dict.get("date", "今天")
-            time_str = improved_data.get("time", "").strip() or original_event_dict.get("time", None)
-            print("   ⚠️ [CalendarReflection] 改進版本未輸出有效的 ISO 8601 格式，使用後備解析邏輯")
-            start_datetime, end_datetime = parse_datetime(date_str, time_str)
-        else:
-            # LLM 已輸出有效格式，提取原始日期時間字符串用於 UI
-            date_str = improved_data.get("date", "").strip() or original_event_dict.get("date", "")
-            time_str = improved_data.get("time", "").strip() or original_event_dict.get("time", "")
+        # 使用驗證和修正機制（而非直接 fallback 到 Python）
+        start_datetime, end_datetime, date_str, time_str = validate_and_correct_datetime(
+            llm_output=merged_data,
+            current_datetime=current_datetime,
+            prompt=prompt,
+            user_language=user_language,
+            max_retries=2,
+            parse_datetime_fallback=parse_datetime
+        )
+        
+        # 【二輪修正機制】驗證並修正改進版本的參與者郵箱
+        merged_data_for_attendees = {
+            "attendees": improved_data.get("attendees", "").strip() or original_event_dict.get("attendees", "")
+        }
+        attendees = validate_and_correct_attendees(
+            llm_output=merged_data_for_attendees,
+            prompt=prompt,
+            user_language=user_language,
+            max_retries=2,
+            validate_and_clean_emails_fallback=validate_and_clean_emails
+        )
         
         # 構建改進後的事件字典
         improved_event_dict = {
@@ -362,7 +360,7 @@ def generate_improved_calendar_event(
             "end_datetime": end_datetime,
             "description": improved_data.get("description", original_description),
             "location": improved_data.get("location", original_location),
-            "attendees": improved_data.get("attendees", original_attendees),
+            "attendees": attendees,  # 使用驗證和修正後的參與者郵箱
             "timezone": original_event_dict.get("timezone", "Asia/Taipei"),
             "date": date_str,
             "time": time_str if time_str else ""

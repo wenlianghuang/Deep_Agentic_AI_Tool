@@ -13,144 +13,17 @@ from .calendar_reflection_agent import reflect_on_calendar_event, generate_impro
 from ..config import MAX_REFLECTION_ITERATION
 from ..tools.googlemaps_tool import enrich_location_info
 from ..guidelines import get_guideline
-
-
-def detect_language(text: str) -> str:
-    """
-    檢測文本的主要語言（中文或英文）
-    
-    Args:
-        text: 輸入文本
-    
-    Returns:
-        'zh' 或 'en'
-    """
-    # 簡單的語言檢測：檢查是否包含中文字符
-    chinese_pattern = re.compile(r'[\u4e00-\u9fff]+')
-    if chinese_pattern.search(text):
-        return 'zh'
-    else:
-        return 'en'
-
-
-def parse_datetime(date_str: str, time_str: str = None) -> tuple[str, str]:
-    """
-    解析日期和時間，生成 ISO 8601 格式的開始和結束時間
-    增強版：支援下週X格式
-    
-    Args:
-        date_str: 日期字符串（例如: "2026-01-25"、"明天"、"下週三"）
-        time_str: 時間字符串（例如: "09:00" 或 "9:00 AM"），可選
-    
-    Returns:
-        (start_datetime, end_datetime) 元組，格式為 ISO 8601
-    """
-    try:
-        # 處理相對日期（今天、明天等）
-        today = datetime.now()
-        if '今天' in date_str or 'today' in date_str.lower():
-            target_date = today
-        elif '明天' in date_str or 'tomorrow' in date_str.lower():
-            target_date = today + timedelta(days=1)
-        elif '後天' in date_str or 'day after tomorrow' in date_str.lower():
-            target_date = today + timedelta(days=2)
-        # 處理下週X格式（中文）
-        elif '下週' in date_str or '下星期' in date_str:
-            # 星期對應：週一=0, 週二=1, 週三=2, 週四=3, 週五=4, 週六=5, 週日=6
-            weekdays_cn = {
-                '一': 0, '二': 1, '三': 2, '四': 3, 
-                '五': 4, '六': 5, '日': 6, '天': 6
-            }
-            matched = False
-            for day_char, day_num in weekdays_cn.items():
-                if day_char in date_str:
-                    # 計算下一個指定的星期幾
-                    # 如果今天是週三，說"下週三"是指下一個週三（7天後），不是今天
-                    days_ahead = day_num - today.weekday()
-                    if days_ahead <= 0:  # 如果這個星期幾已經過了，就找下週的
-                        days_ahead += 7
-                    target_date = today + timedelta(days=days_ahead)
-                    matched = True
-                    break
-            
-            if not matched:
-                # 如果沒有匹配到，預設為下週一
-                days_ahead = (0 - today.weekday()) % 7
-                if days_ahead == 0:
-                    days_ahead = 7
-                target_date = today + timedelta(days=days_ahead)
-        # 處理 next Monday/Tuesday 等格式（英文）
-        elif 'next' in date_str.lower():
-            weekdays_en = {
-                'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
-                'friday': 4, 'saturday': 5, 'sunday': 6
-            }
-            date_lower = date_str.lower()
-            matched = False
-            for day_name, day_num in weekdays_en.items():
-                if day_name in date_lower:
-                    # 計算下一個指定的星期幾
-                    days_ahead = day_num - today.weekday()
-                    if days_ahead <= 0:
-                        days_ahead += 7
-                    target_date = today + timedelta(days=days_ahead)
-                    matched = True
-                    break
-            
-            if not matched:
-                # 如果沒有匹配到，預設為下週一
-                days_ahead = (0 - today.weekday()) % 7
-                if days_ahead == 0:
-                    days_ahead = 7
-                target_date = today + timedelta(days=days_ahead)
-        else:
-            # 嘗試解析日期格式
-            try:
-                target_date = datetime.strptime(date_str, '%Y-%m-%d')
-            except:
-                # 如果無法解析，使用今天
-                target_date = today
-        
-        # 處理時間
-        if time_str:
-            # 嘗試解析時間
-            time_formats = ['%H:%M', '%I:%M %p', '%I:%M%p']
-            parsed_time = None
-            for fmt in time_formats:
-                try:
-                    parsed_time = datetime.strptime(time_str.strip(), fmt).time()
-                    break
-                except:
-                    continue
-            
-            if parsed_time:
-                start_datetime = datetime.combine(target_date.date(), parsed_time)
-            else:
-                # 預設時間：上午 9:00
-                start_datetime = datetime.combine(target_date.date(), datetime.min.time().replace(hour=9))
-        else:
-            # 預設時間：上午 9:00
-            start_datetime = datetime.combine(target_date.date(), datetime.min.time().replace(hour=9))
-        
-        # 預設持續時間：1 小時
-        end_datetime = start_datetime + timedelta(hours=1)
-        
-        # 轉換為 ISO 8601 格式（帶時區）
-        timezone_offset = "+08:00"  # 台灣時區
-        start_iso = start_datetime.strftime('%Y-%m-%dT%H:%M:%S') + timezone_offset
-        end_iso = end_datetime.strftime('%Y-%m-%dT%H:%M:%S') + timezone_offset
-        
-        return start_iso, end_iso
-        
-    except Exception as e:
-        # 如果解析失敗，使用今天上午 9:00
-        today = datetime.now()
-        start_datetime = datetime.combine(today.date(), datetime.min.time().replace(hour=9))
-        end_datetime = start_datetime + timedelta(hours=1)
-        timezone_offset = "+08:00"
-        start_iso = start_datetime.strftime('%Y-%m-%dT%H:%M:%S') + timezone_offset
-        end_iso = end_datetime.strftime('%Y-%m-%dT%H:%M:%S') + timezone_offset
-        return start_iso, end_iso
+from .calendar_validation import (
+    validate_iso8601,
+    is_datetime_reasonable,
+    build_validation_error_message,
+    request_llm_correction,
+    validate_and_correct_datetime,
+    validate_and_correct_attendees,
+    detect_language,
+    parse_datetime
+)
+from ..tools.calendar_tool import validate_and_clean_emails
 
 
 def generate_calendar_draft(
@@ -317,42 +190,16 @@ def generate_calendar_draft(
                 "attendees": ""
             }
         
-        # 優先使用 LLM 直接輸出的 ISO 8601 格式日期時間
-        start_datetime = event_data.get("start_datetime", "").strip()
-        end_datetime = event_data.get("end_datetime", "").strip()
-        
-        # 驗證 ISO 8601 格式
-        def validate_iso8601(dt_str: str) -> bool:
-            """驗證 ISO 8601 格式"""
-            if not dt_str:
-                return False
-            try:
-                from datetime import datetime as dt
-                # 處理時區格式
-                dt_str_clean = dt_str.replace('+08:00', '+08:00')
-                dt.fromisoformat(dt_str_clean)
-                return True
-            except:
-                return False
-        
-        # 如果 LLM 沒有輸出格式化的日期時間，或格式不正確，使用後備解析
-        if not validate_iso8601(start_datetime) or not validate_iso8601(end_datetime):
-            # 後備：使用 Python 解析邏輯
-            date_str = event_data.get("date", "").strip()
-            time_str = event_data.get("time", "").strip()
-            
-            # 如果日期或時間缺失，使用預設值但標記為缺失
-            if not date_str:
-                date_str = "今天"  # 預設使用今天
-            if not time_str:
-                time_str = None  # 時間缺失，將在下拉選單中選擇
-            
-            print("   ⚠️ [CalendarAgent] LLM 未輸出有效的 ISO 8601 格式，使用後備解析邏輯")
-            start_datetime, end_datetime = parse_datetime(date_str, time_str)
-        else:
-            # LLM 已輸出有效格式，提取原始日期時間字符串用於 UI
-            date_str = event_data.get("date", "").strip()
-            time_str = event_data.get("time", "").strip()
+        # 【二輪修正機制】驗證並修正 LLM 輸出的日期時間
+        # 優先使用 LLM 直接輸出的 ISO 8601 格式，如果無效則請求 LLM 修正（而非直接 fallback 到 Python）
+        start_datetime, end_datetime, date_str, time_str = validate_and_correct_datetime(
+            llm_output=event_data,
+            current_datetime=current_datetime,
+            prompt=prompt,
+            user_language=user_language,
+            max_retries=2,
+            parse_datetime_fallback=parse_datetime
+        )
         
         # 檢查缺失的資訊（用於 UI 顯示）
         missing_info = {}
@@ -395,6 +242,16 @@ def generate_calendar_draft(
                 print(f"   ⚠️ [GoogleMaps] 地點資訊豐富化失敗：{e}，將使用原始地址")
                 location_suggestion = f"⚠️ 無法驗證地址（{str(e)}），將使用原始地址"
         
+        # 【二輪修正機制】驗證並修正 LLM 輸出的參與者郵箱
+        # 優先使用 LLM 根據指南提取和驗證，而非直接使用 Python 正則
+        attendees = validate_and_correct_attendees(
+            llm_output=event_data,
+            prompt=prompt,
+            user_language=user_language,
+            max_retries=2,
+            validate_and_clean_emails_fallback=validate_and_clean_emails
+        )
+        
         # 構建事件字典
         event_dict = {
             "summary": event_data.get("summary", "新事件"),
@@ -402,7 +259,7 @@ def generate_calendar_draft(
             "end_datetime": end_datetime,
             "description": event_data.get("description", ""),
             "location": location,  # 使用標準化後的地址（如果驗證成功）
-            "attendees": event_data.get("attendees", ""),
+            "attendees": attendees,  # 使用驗證和修正後的參與者郵箱
             "timezone": "Asia/Taipei",
             "date": date_str,  # 保留原始日期字串
             "time": time_str if time_str else "",  # 保留原始時間字串
