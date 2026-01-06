@@ -1,118 +1,58 @@
 """
 RAG 系統初始化
-處理 PDF 載入、向量化和檢索
+使用 Private File RAG 系統，支持多文件、進階 RAG 方法
 """
 import os
-import shutil
-import torch
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+import glob
+from typing import Optional
 
-from ..config import (
-    EXTERNAL_SSD_PATH, HF_CACHE_DIR, PDF_PATH,
-    EMBEDDING_MODEL, CHUNK_SIZE, CHUNK_OVERLAP, RETRIEVER_K
-)
+from .private_file_rag import PrivateFileRAG
 
 
-def get_device():
-    """自動檢測可用的設備（優先使用 Apple Silicon GPU）"""
-    if torch.backends.mps.is_available():
-        return "mps"
-    elif torch.cuda.is_available():
-        return "cuda"
-    else:
-        return "cpu"
-
-
-def init_rag_system():
-    """初始化 RAG 系統（PDF 向量資料庫）"""
-    retriever = None
+def init_rag_system() -> Optional[PrivateFileRAG]:
+    """
+    初始化 RAG 系統（使用 Private File RAG）
+    自動載入 data 目錄中的所有 PDF 文件
     
-    if not os.path.exists(PDF_PATH):
-        print(f"⚠️ 警告：找不到 {PDF_PATH}，RAG 功能將無法使用。")
-        return retriever
+    Returns:
+        PrivateFileRAG 實例，如果初始化失敗則返回 None
+    """
+    # 查找 data 目錄中的所有 PDF 文件
+    data_dir = "./data"
+    pdf_files = glob.glob(os.path.join(data_dir, "*.pdf"))
     
-    print("🚀 [RAG] 正在初始化 PDF 向量資料庫（使用 Jina Embeddings v3）...")
-    
-    try:
-        # 載入 PDF
-        loader = PyPDFLoader(PDF_PATH)
-        docs = loader.load()
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=CHUNK_SIZE,
-            chunk_overlap=CHUNK_OVERLAP
-        )
-        splits = text_splitter.split_documents(docs)
-        print(f"   ✓ PDF 載入完成，共 {len(splits)} 個文字塊")
-        
-        # 初始化 Jina Embeddings
-        device = get_device()
-        device_name = "Apple Silicon GPU (MPS)" if device == "mps" else ("NVIDIA GPU (CUDA)" if device == "cuda" else "CPU")
-        print(f"   📦 正在載入 Jina Embeddings 模型（使用設備：{device_name}）...")
-        
-        # 設定緩存目錄
-        cache_folder = None
-        if os.path.exists(EXTERNAL_SSD_PATH):
-            cache_folder = os.path.join(HF_CACHE_DIR, "transformers")
-            os.makedirs(cache_folder, exist_ok=True)
-        
-        # 準備 model_kwargs
-        model_kwargs = {
-            "device": device,
-            "trust_remote_code": True
-        }
-        
-        # 建立 embeddings
-        embeddings_kwargs = {
-            "model_name": EMBEDDING_MODEL,
-            "model_kwargs": model_kwargs,
-            "encode_kwargs": {
-                "normalize_embeddings": True,
-                "batch_size": 4,
-            },
-            "show_progress": True
-        }
-        
-        if cache_folder:
-            embeddings_kwargs["cache_folder"] = cache_folder
-        
-        # 嘗試載入模型
-        try:
-            embeddings = HuggingFaceEmbeddings(**embeddings_kwargs)
-            print("   ✅ Jina Embeddings 載入完成")
-        except (FileNotFoundError, OSError, Exception) as e:
-            error_msg = str(e)
-            if "No such file or directory" in error_msg or "cache" in error_msg.lower() or "transformers_modules" in error_msg:
-                print("   ⚠️ 檢測到模型緩存不完整，正在清理並重新下載...")
-                cache_paths_to_clean = [
-                    os.path.join(HF_CACHE_DIR, "modules", "transformers_modules", "jinaai"),
-                    os.path.join(HF_CACHE_DIR, "modules", "transformers_modules", "jinaai", "jina_hyphen_embeddings_hyphen_v3"),
-                ]
-                
-                for cache_path in cache_paths_to_clean:
-                    if os.path.exists(cache_path):
-                        try:
-                            shutil.rmtree(cache_path)
-                        except Exception:
-                            pass
-                
-                print("   正在重新下載模型（這可能需要幾分鐘）...")
-                embeddings = HuggingFaceEmbeddings(**embeddings_kwargs)
-                print("   ✅ Jina Embeddings 載入完成（已重新下載）")
-            else:
-                print(f"   ❌ 載入模型時發生錯誤：{error_msg}")
-                return None
-        
-        # 建立向量資料庫
-        vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings)
-        retriever = vectorstore.as_retriever(search_kwargs={"k": RETRIEVER_K})
-        print("   ✅ RAG 系統初始化完成")
-        
-    except Exception as e:
-        print(f"   ❌ RAG 系統初始化失敗：{e}")
+    if not pdf_files:
+        print(f"⚠️ 警告：在 {data_dir} 目錄中找不到 PDF 文件，RAG 功能將無法使用。")
         return None
     
-    return retriever
-
+    print(f"🚀 [RAG] 正在使用 Private File RAG 初始化系統...")
+    print(f"   找到 {len(pdf_files)} 個 PDF 文件：")
+    for pdf_file in pdf_files:
+        print(f"      - {os.path.basename(pdf_file)}")
+    
+    try:
+        # 創建 Private File RAG 實例
+        # 啟用自適應選擇和進階 RAG 方法
+        private_rag = PrivateFileRAG(
+            use_semantic_chunking=False,  # 可以根據需要改為 True
+            chunk_size=500,
+            chunk_overlap=100,
+            enable_adaptive_selection=True,  # 啟用自適應選擇最佳 RAG 方法
+            selected_rag_method=None  # None 表示自動選擇
+        )
+        
+        # 處理所有 PDF 文件
+        documents, status_msg = private_rag.process_files(pdf_files)
+        
+        if not documents:
+            print(f"   ❌ 處理文件失敗：{status_msg}")
+            return None
+        
+        print(f"   ✅ {status_msg}")
+        return private_rag
+        
+    except Exception as e:
+        print(f"   ❌ Private File RAG 初始化失敗：{e}")
+        import traceback
+        traceback.print_exc()
+        return None
