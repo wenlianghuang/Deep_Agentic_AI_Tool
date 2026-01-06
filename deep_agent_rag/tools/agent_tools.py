@@ -1,15 +1,10 @@
 """
 Agent 工具定義
-包含股票查詢、網路搜尋、PDF 知識庫查詢等工具
+包含股票查詢、網路搜尋、PDF 知識庫查詢、arXiv 論文搜尋等工具
 """
 import yfinance as yf
 from langchain_core.tools import tool
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
 from langchain_community.tools.tavily_search import TavilySearchResults
-
-from ..utils.llm_utils import get_llm
 
 
 @tool
@@ -43,8 +38,10 @@ def search_web(query: str) -> str:
 
 def query_pdf_knowledge(query: str, rag_retriever=None) -> str:
     """
-    查詢 PDF 知識庫（Tree of Thoughts 論文）中的相關資訊。
+    查詢 PDF 知識庫中的相關資訊。
     當問題涉及論文內容、研究概念、方法論或學術理論時使用此工具。
+    
+    現在使用 Private File RAG 系統，支持多文件、進階 RAG 方法。
     """
     if not rag_retriever:
         return "PDF 知識庫未載入，無法查詢。"
@@ -52,47 +49,288 @@ def query_pdf_knowledge(query: str, rag_retriever=None) -> str:
     try:
         print(f"   🔍 [RAG] 正在查詢 PDF 知識庫: {query}")
         
-        # 檢索相關文檔
-        docs = rag_retriever.invoke(query)
+        # 檢查是否是 Private File RAG 實例
+        from ..rag.private_file_rag import PrivateFileRAG
         
-        if not docs:
-            return "在 PDF 知識庫中未找到相關資訊。"
-        
-        # 格式化檢索結果
-        context = "\n\n".join([doc.page_content for doc in docs])
-        
-        # 使用 LLM 基於檢索到的內容回答問題
-        llm_rag = get_llm()
-        prompt = ChatPromptTemplate.from_template(
-            "請根據以下從 PDF 知識庫中檢索到的上下文片段，回答使用者的問題。\n\n"
-            "上下文：\n{context}\n\n"
-            "問題：{question}\n\n"
-            "請基於上下文回答，如果上下文中沒有相關資訊，請明確說明。回答請保持簡潔且準確。"
-        )
-        chain = (
-            {"context": lambda x: context, "question": RunnablePassthrough()}
-            | prompt
-            | llm_rag
-            | StrOutputParser()
-        )
-        result = chain.invoke(query)
-        return result
+        if isinstance(rag_retriever, PrivateFileRAG):
+            # 使用 Private File RAG 的 query 方法
+            result = rag_retriever.query(
+                query=query,
+                top_k=5,  # 檢索前 5 個相關片段
+                use_llm=True  # 使用 LLM 生成回答
+            )
+            
+            if result.get("success"):
+                answer = result.get("answer", "")
+                if answer:
+                    # 可選：添加使用的 RAG 方法信息（用於調試）
+                    rag_method = result.get("rag_method", "basic")
+                    if rag_method != "basic":
+                        print(f"   📊 [RAG] 使用 {rag_method} 方法")
+                    return answer
+                else:
+                    return "在 PDF 知識庫中未找到相關資訊。"
+            else:
+                error = result.get("error", "未知錯誤")
+                return f"PDF 知識庫查詢失敗: {error}"
+        else:
+            # 向後兼容：如果不是 PrivateFileRAG 實例，嘗試舊的接口
+            # 但這應該不會發生，因為我們已經完全替換了
+            return "PDF 知識庫格式不正確，請重新初始化。"
+            
     except Exception as e:
         return f"PDF 知識庫查詢失敗: {e}"
+
+
+def extract_keywords_from_pdf(query: str, rag_retriever=None) -> str:
+    """
+    從 PDF 知識庫中提取學術關鍵字，用於 arXiv 搜尋。
+    當需要查找相關學術論文時使用此工具。
+    
+    Args:
+        query: 查詢問題
+        rag_retriever: RAG 檢索器（PrivateFileRAG 實例）
+    
+    Returns:
+        提取的關鍵字列表（JSON 格式）
+    """
+    if not rag_retriever:
+        return "PDF 知識庫未載入，無法提取關鍵字。"
+    
+    try:
+        from ..rag.private_file_rag import PrivateFileRAG
+        from ..utils.llm_utils import get_llm
+        from langchain_core.messages import HumanMessage
+        import json
+        
+        if not isinstance(rag_retriever, PrivateFileRAG):
+            return "PDF 知識庫格式不正確。"
+        
+        # 先查詢 PDF 獲取相關內容
+        result = rag_retriever.query(
+            query=query,
+            top_k=3,
+            use_llm=False  # 只檢索，不生成回答
+        )
+        
+        if not result.get("success") or not result.get("results"):
+            return "在 PDF 中未找到相關內容，無法提取關鍵字。"
+        
+        # 從檢索結果中提取文本
+        contexts = []
+        for res in result.get("results", [])[:3]:
+            contexts.append(res.get("content", ""))
+        
+        combined_context = "\n\n".join(contexts)
+        
+        # 使用 LLM 提取關鍵字
+        llm = get_llm()
+        prompt = f"""從以下 PDF 內容中提取學術關鍵字，這些關鍵字將用於在 arXiv 上搜尋相關論文。
+
+PDF 內容：
+{combined_context}
+
+原始查詢：{query}
+
+請提取：
+1. 核心學術概念和術語（英文）
+2. 研究方法和技術名稱
+3. 相關領域關鍵詞
+
+返回格式：JSON 陣列，例如：["keyword1", "keyword2", "keyword3"]
+只返回 JSON 陣列，不要其他解釋。"""
+        
+        messages = [HumanMessage(content=prompt)]
+        response = llm.invoke(messages)
+        keywords_text = response.content if hasattr(response, 'content') else str(response)
+        
+        # 嘗試解析 JSON
+        try:
+            # 清理響應，提取 JSON 部分
+            keywords_text = keywords_text.strip()
+            if keywords_text.startswith("```"):
+                # 移除程式碼塊標記
+                keywords_text = keywords_text.split("```")[1]
+                if keywords_text.startswith("json"):
+                    keywords_text = keywords_text[4:]
+            keywords_text = keywords_text.strip()
+            
+            keywords = json.loads(keywords_text)
+            if isinstance(keywords, list) and keywords:
+                return json.dumps(keywords, ensure_ascii=False)
+            else:
+                return "未能提取有效關鍵字。"
+        except json.JSONDecodeError:
+            # 如果 JSON 解析失敗，嘗試提取引號中的內容
+            import re
+            keywords = re.findall(r'"([^"]+)"', keywords_text)
+            if keywords:
+                return json.dumps(keywords, ensure_ascii=False)
+            return f"關鍵字提取失敗，LLM 返回：{keywords_text}"
+            
+    except Exception as e:
+        return f"提取關鍵字失敗: {e}"
+
+
+def search_arxiv_papers(keywords_json: str, max_results: int = 5) -> str:
+    """
+    使用 arXiv API 搜尋相關論文。
+    
+    Args:
+        keywords_json: 關鍵字 JSON 陣列字串，例如：'["machine learning", "neural networks"]'
+        max_results: 最大返回結果數
+    
+    Returns:
+        論文列表的格式化字串
+    """
+    try:
+        import json
+        import arxiv
+        from src.document_processor import DocumentProcessor
+        
+        # 解析關鍵字
+        keywords = json.loads(keywords_json)
+        if not isinstance(keywords, list) or not keywords:
+            return "無效的關鍵字格式。"
+        
+        # 構建 arXiv 搜尋查詢
+        # 使用 OR 連接多個關鍵字
+        query = " OR ".join([f'all:"{kw}"' for kw in keywords[:5]])  # 限制最多 5 個關鍵字
+        
+        print(f"   📚 [arXiv] 正在搜尋論文，關鍵字: {', '.join(keywords[:5])}")
+        
+        # 搜尋論文
+        search = arxiv.Search(
+            query=query,
+            max_results=max_results,
+            sort_by=arxiv.SortCriterion.Relevance
+        )
+        
+        papers = []
+        for paper in search.results():
+            papers.append({
+                "title": paper.title,
+                "authors": [author.name for author in paper.authors],
+                "summary": paper.summary[:500],  # 限制摘要長度
+                "published": str(paper.published),
+                "arxiv_id": paper.entry_id.split('/')[-1],
+                "arxiv_url": paper.entry_id,
+                "pdf_url": paper.pdf_url,
+                "categories": [str(cat) for cat in paper.categories],
+            })
+        
+        if not papers:
+            return "未找到相關論文。"
+        
+        # 返回格式化的論文列表
+        result_text = f"找到 {len(papers)} 篇相關論文：\n\n"
+        for i, paper in enumerate(papers, 1):
+            result_text += f"{i}. {paper['title']}\n"
+            result_text += f"   arXiv ID: {paper['arxiv_id']}\n"
+            result_text += f"   作者: {', '.join(paper['authors'][:3])}"
+            if len(paper['authors']) > 3:
+                result_text += f" 等 {len(paper['authors'])} 位作者"
+            result_text += "\n"
+            result_text += f"   摘要: {paper['summary']}...\n"
+            result_text += f"   連結: {paper['pdf_url']}\n"
+            result_text += f"   分類: {', '.join(paper['categories'][:3])}\n\n"
+        
+        print(f"   ✅ [arXiv] 成功找到 {len(papers)} 篇論文")
+        return result_text
+        
+    except Exception as e:
+        return f"arXiv 搜尋失敗: {e}"
+
+
+def add_arxiv_papers_to_rag(arxiv_ids_json: str, rag_retriever=None) -> str:
+    """
+    下載 arXiv 論文並添加到 RAG 系統中。
+    
+    Args:
+        arxiv_ids_json: arXiv ID 的 JSON 陣列，例如：'["2305.10601", "2301.12345"]'
+        rag_retriever: RAG 檢索器（PrivateFileRAG 實例）
+    
+    Returns:
+        添加結果的狀態資訊
+    """
+    if not rag_retriever:
+        return "RAG 系統未初始化。"
+    
+    try:
+        import json
+        import arxiv
+        import tempfile
+        import os
+        from ..rag.private_file_rag import PrivateFileRAG
+        
+        if not isinstance(rag_retriever, PrivateFileRAG):
+            return "RAG 系統格式不正確。"
+        
+        # 解析 arXiv IDs
+        arxiv_ids = json.loads(arxiv_ids_json)
+        if not isinstance(arxiv_ids, list) or not arxiv_ids:
+            return "無效的 arXiv ID 格式。"
+        
+        print(f"   📥 [arXiv] 正在下載 {len(arxiv_ids)} 篇論文...")
+        
+        # 下載論文 PDF
+        downloaded_files = []
+        for arxiv_id in arxiv_ids[:5]:  # 限制最多 5 篇
+            try:
+                # 搜尋論文
+                search = arxiv.Search(id_list=[arxiv_id])
+                paper = next(search.results(), None)
+                
+                if not paper:
+                    print(f"   ⚠️ 找不到論文 {arxiv_id}")
+                    continue
+                
+                # 下載 PDF 到臨時檔案
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+                    paper.download_pdf(dirpath=os.path.dirname(tmp_file.name), filename=os.path.basename(tmp_file.name))
+                    downloaded_files.append(tmp_file.name)
+                    print(f"   ✓ 已下載論文 {arxiv_id}: {paper.title[:50]}...")
+                    
+            except Exception as e:
+                print(f"   ⚠️ 下載論文 {arxiv_id} 失敗: {e}")
+                continue
+        
+        if not downloaded_files:
+            return "未能下載任何論文。"
+        
+        print(f"   🔄 [RAG] 正在將 {len(downloaded_files)} 篇論文添加到 RAG 系統...")
+        
+        # 將論文添加到 RAG 系統
+        documents, status_msg = rag_retriever.process_files(downloaded_files)
+        
+        # 清理臨時檔案
+        for file_path in downloaded_files:
+            try:
+                os.unlink(file_path)
+            except:
+                pass
+        
+        if documents:
+            return f"✅ 成功添加 {len(downloaded_files)} 篇論文到 RAG 系統。{status_msg}"
+        else:
+            return f"⚠️ 論文下載成功但處理失敗：{status_msg}"
+            
+    except Exception as e:
+        return f"添加論文失敗: {e}"
 
 
 def get_tools_list(rag_retriever=None):
     """
     獲取工具列表
-    注意：query_pdf_knowledge 需要 rag_retriever，所以需要動態創建
+    注意：部分工具需要 rag_retriever，所以需要動態創建
     """
-    # 創建一個帶有 rag_retriever 的 query_pdf_knowledge 工具
+    # 創建帶有 rag_retriever 的工具包裝器
     if rag_retriever:
-        # 創建一個包裝函數，將 rag_retriever 綁定進去
         def query_pdf_wrapper(query: str) -> str:
             """
-            查詢 PDF 知識庫（Tree of Thoughts 論文）中的相關資訊。
+            查詢 PDF 知識庫中的相關資訊。
             當問題涉及論文內容、研究概念、方法論或學術理論時使用此工具。
+            支持多文件檢索和進階 RAG 方法。
             
             Args:
                 query: 查詢問題
@@ -102,10 +340,52 @@ def get_tools_list(rag_retriever=None):
             """
             return query_pdf_knowledge(query, rag_retriever=rag_retriever)
         
-        # 使用 tool 裝飾器創建工具
+        def extract_keywords_wrapper(query: str) -> str:
+            """
+            從 PDF 知識庫中提取學術關鍵字，用於 arXiv 搜尋。
+            當需要查找相關學術論文時使用此工具。
+            
+            Args:
+                query: 查詢問題
+            
+            Returns:
+                關鍵字 JSON 陣列字串
+            """
+            return extract_keywords_from_pdf(query, rag_retriever=rag_retriever)
+        
+        def add_arxiv_papers_wrapper(arxiv_ids_json: str) -> str:
+            """
+            下載 arXiv 論文並添加到 RAG 系統中。
+            
+            Args:
+                arxiv_ids_json: arXiv ID 的 JSON 陣列字串
+            
+            Returns:
+                添加結果的狀態資訊
+            """
+            return add_arxiv_papers_to_rag(arxiv_ids_json, rag_retriever=rag_retriever)
+        
+        # 創建工具
         pdf_tool = tool(query_pdf_wrapper)
         pdf_tool.name = "query_pdf_knowledge"
-        return [get_company_deep_info, search_web, pdf_tool]
+        
+        keywords_tool = tool(extract_keywords_wrapper)
+        keywords_tool.name = "extract_keywords_from_pdf"
+        
+        arxiv_search_tool = tool(search_arxiv_papers)
+        arxiv_search_tool.name = "search_arxiv_papers"
+        
+        add_papers_tool = tool(add_arxiv_papers_wrapper)
+        add_papers_tool.name = "add_arxiv_papers_to_rag"
+        
+        return [
+            get_company_deep_info, 
+            search_web, 
+            pdf_tool,
+            keywords_tool,
+            arxiv_search_tool,
+            add_papers_tool
+        ]
     else:
         return [get_company_deep_info, search_web]
 
