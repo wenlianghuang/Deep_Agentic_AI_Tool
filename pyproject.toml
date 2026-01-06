@@ -37,7 +37,7 @@ dependencies = [
     "google-auth-httplib2>=0.3.0",
     "google-auth-oauthlib>=1.2.3",
     "googlemaps>=4.10.0",
-    # Learn_RAG 項目依賴（用於私有文件 RAG 功能）
+    "parlant @ git+https://github.com/emcie-co/parlant@develop",  # Learn_RAG 項目依賴（用於私有文件 RAG 功能）
     "arxiv>=2.3.1",
     "langchain-text-splitters>=0.0.1",
     "rank-bm25>=0.2.2",

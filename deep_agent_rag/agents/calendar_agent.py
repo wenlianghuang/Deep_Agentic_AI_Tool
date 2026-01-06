@@ -12,94 +12,19 @@ from ..tools.calendar_tool import create_calendar_event, update_calendar_event, 
 from .calendar_reflection_agent import reflect_on_calendar_event, generate_improved_calendar_event
 from ..config import MAX_REFLECTION_ITERATION
 from ..tools.googlemaps_tool import enrich_location_info
-
-
-def detect_language(text: str) -> str:
-    """
-    檢測文本的主要語言（中文或英文）
-    
-    Args:
-        text: 輸入文本
-    
-    Returns:
-        'zh' 或 'en'
-    """
-    # 簡單的語言檢測：檢查是否包含中文字符
-    chinese_pattern = re.compile(r'[\u4e00-\u9fff]+')
-    if chinese_pattern.search(text):
-        return 'zh'
-    else:
-        return 'en'
-
-
-def parse_datetime(date_str: str, time_str: str = None) -> tuple[str, str]:
-    """
-    解析日期和時間，生成 ISO 8601 格式的開始和結束時間
-    
-    Args:
-        date_str: 日期字符串（例如: "2026-01-25" 或 "明天"）
-        time_str: 時間字符串（例如: "09:00" 或 "9:00 AM"），可選
-    
-    Returns:
-        (start_datetime, end_datetime) 元組，格式為 ISO 8601
-    """
-    try:
-        # 處理相對日期（今天、明天等）
-        today = datetime.now()
-        if '今天' in date_str or 'today' in date_str.lower():
-            target_date = today
-        elif '明天' in date_str or 'tomorrow' in date_str.lower():
-            target_date = today + timedelta(days=1)
-        elif '後天' in date_str or 'day after tomorrow' in date_str.lower():
-            target_date = today + timedelta(days=2)
-        else:
-            # 嘗試解析日期格式
-            try:
-                target_date = datetime.strptime(date_str, '%Y-%m-%d')
-            except:
-                # 如果無法解析，使用今天
-                target_date = today
-        
-        # 處理時間
-        if time_str:
-            # 嘗試解析時間
-            time_formats = ['%H:%M', '%I:%M %p', '%I:%M%p']
-            parsed_time = None
-            for fmt in time_formats:
-                try:
-                    parsed_time = datetime.strptime(time_str.strip(), fmt).time()
-                    break
-                except:
-                    continue
-            
-            if parsed_time:
-                start_datetime = datetime.combine(target_date.date(), parsed_time)
-            else:
-                # 預設時間：上午 9:00
-                start_datetime = datetime.combine(target_date.date(), datetime.min.time().replace(hour=9))
-        else:
-            # 預設時間：上午 9:00
-            start_datetime = datetime.combine(target_date.date(), datetime.min.time().replace(hour=9))
-        
-        # 預設持續時間：1 小時
-        end_datetime = start_datetime + timedelta(hours=1)
-        
-        # 轉換為 ISO 8601 格式（帶時區）
-        timezone_offset = "+08:00"  # 台灣時區
-        start_iso = start_datetime.strftime('%Y-%m-%dT%H:%M:%S') + timezone_offset
-        end_iso = end_datetime.strftime('%Y-%m-%dT%H:%M:%S') + timezone_offset
-        
-        return start_iso, end_iso
-        
-    except Exception as e:
-        # 如果解析失敗，使用今天上午 9:00
-        today = datetime.now()
-        start_datetime = datetime.combine(today.date(), datetime.min.time().replace(hour=9))
-        end_datetime = start_datetime + timedelta(hours=1)
-        timezone_offset = "+08:00"
-        start_iso = start_datetime.strftime('%Y-%m-%dT%H:%M:%S') + timezone_offset
-        end_iso = end_datetime.strftime('%Y-%m-%dT%H:%M:%S') + timezone_offset
-        return start_iso, end_iso
+from ..guidelines import get_guideline
+from .calendar_validation import (
+    validate_iso8601,
+    is_datetime_reasonable,
+    build_validation_error_message,
+    request_llm_correction,
+    validate_and_correct_datetime,
+    validate_and_correct_attendees,
+    validate_and_correct_location,
+    detect_language,
+    parse_datetime
+)
+from ..tools.calendar_tool import validate_and_clean_emails
 
 
 def generate_calendar_draft(
@@ -128,53 +53,81 @@ def generate_calendar_draft(
         # 獲取 LLM
         llm = get_llm()
         
+        # 【Parlant 整合】獲取行事曆指南
+        event_creation_guideline = get_guideline("calendar", "event_creation")
+        time_parsing_guideline = get_guideline("calendar", "time_parsing")
+        location_handling_guideline = get_guideline("calendar", "location_handling")
+        
+        # 獲取當前日期時間作為上下文數據（不是規則，是必要的上下文信息）
+        current_datetime = datetime.now()
+        current_date_str = current_datetime.strftime('%Y年%m月%d日')
+        current_weekday_cn = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'][current_datetime.weekday()]
+        current_date_iso = current_datetime.strftime('%Y-%m-%d')
+        current_weekday_en = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][current_datetime.weekday()]
+        
         # 根據語言選擇對應的 prompt 模板
         if user_language == 'zh':
-            # 中文 prompt 模板 - 從單一 prompt 中提取所有資訊
+            # 中文 prompt 模板 - 整合指南並要求直接輸出 ISO 8601 格式
             calendar_prompt_template = (
                 "你是一位專業的行事曆事件解析助手。請從以下用戶提示中提取所有行事曆事件資訊。\n\n"
+                "【當前日期上下文】\n"
+                "今天是：{current_date_str} ({current_weekday_cn})\n"
+                "Today is: {current_date_iso} ({current_weekday_en})\n\n"
+                "【事件創建指南】\n{event_creation_guideline}\n\n"
+                "【時間解析指南】\n{time_parsing_guideline}\n\n"
+                "【地點處理指南】\n{location_handling_guideline}\n\n"
                 "用戶提示：{prompt}\n\n"
-                "請從提示中提取以下資訊：\n"
-                "1. 事件標題（summary）\n"
-                "2. 日期（date，例如：2026-01-25、明天、今天、後天）\n"
-                "3. 時間（time，例如：14:00、下午2點、9:00 AM）\n"
-                "4. 事件描述（description，詳細說明事件的內容、目的、議程等）\n"
-                "5. 事件地點（location，如果提示中有提到）\n"
-                "6. 參與者郵箱（attendees，如果提示中有提到，多個用逗號分隔）\n\n"
+                "請嚴格遵循上述指南，直接輸出 ISO 8601 格式的日期時間。\n\n"
                 "請以 JSON 格式輸出，格式如下：\n"
                 "{{\n"
                 '  "summary": "事件標題",\n'
-                '  "date": "日期（如果無法確定則為空字符串）",\n'
-                '  "time": "時間（如果無法確定則為空字符串）",\n'
+                '  "start_datetime": "ISO 8601 格式的開始時間（例如：2026-01-25T14:00:00+08:00），如果無法確定則為空字符串",\n'
+                '  "end_datetime": "ISO 8601 格式的結束時間（例如：2026-01-25T15:00:00+08:00），如果無法確定則為空字符串",\n'
                 '  "description": "事件描述",\n'
                 '  "location": "事件地點（如果沒有則為空字符串）",\n'
-                '  "attendees": "參與者郵箱，多個用逗號分隔（只包含有效的郵箱地址，格式：user@domain.com，如果沒有則為空字符串）"\n'
+                '  "attendees": "參與者郵箱，多個用逗號分隔（只包含有效的郵箱地址，格式：user@domain.com，如果沒有則為空字符串）",\n'
+                '  "date": "原始日期字符串（用於 UI 顯示，例如：明天、2026-01-25）",\n'
+                '  "time": "原始時間字符串（用於 UI 顯示，例如：14:00、下午2點）"\n'
                 "}}\n\n"
-                "重要：attendees 欄位必須只包含有效的郵箱地址（格式：user@domain.com），如果提示中只有名字沒有郵箱，則留空。\n"
+                "重要要求：\n"
+                "- start_datetime 和 end_datetime 必須是完整的 ISO 8601 格式（YYYY-MM-DDTHH:MM:SS+08:00）\n"
+                "- 如果無法確定日期或時間，start_datetime 和 end_datetime 可以為空字符串\n"
+                "- date 和 time 欄位保留原始輸入，用於 UI 顯示和編輯\n"
+                "- 預設時區為 Asia/Taipei (+08:00)\n"
+                "- 預設持續時間為 1 小時\n"
+                "- attendees 欄位必須只包含有效的郵箱地址（格式：user@domain.com），如果提示中只有名字沒有郵箱，則留空\n"
                 "只輸出 JSON，不要其他內容。請使用中文。"
             )
         else:
-            # 英文 prompt 模板
+            # 英文 prompt 模板 - 整合指南並要求直接輸出 ISO 8601 格式
             calendar_prompt_template = (
                 "You are a professional calendar event parsing assistant. Please extract all calendar event information from the following user prompt.\n\n"
+                "【Current Date Context】\n"
+                "Today is: {current_date_iso} ({current_weekday_en})\n"
+                "今天是：{current_date_str} ({current_weekday_cn})\n\n"
+                "【Event Creation Guidelines】\n{event_creation_guideline}\n\n"
+                "【Time Parsing Guidelines】\n{time_parsing_guideline}\n\n"
+                "【Location Handling Guidelines】\n{location_handling_guideline}\n\n"
                 "User prompt: {prompt}\n\n"
-                "Please extract the following information:\n"
-                "1. Event title (summary)\n"
-                "2. Date (e.g., 2026-01-25, tomorrow, today, day after tomorrow)\n"
-                "3. Time (e.g., 14:00, 2:00 PM, 9:00 AM)\n"
-                "4. Event description (detailed explanation of the event content, purpose, agenda, etc.)\n"
-                "5. Event location (if mentioned in the prompt)\n"
-                "6. Attendee emails (if mentioned in the prompt, comma-separated)\n\n"
+                "Please strictly follow the guidelines above and directly output ISO 8601 formatted datetime.\n\n"
                 "Please output in JSON format as follows:\n"
                 "{{\n"
                 '  "summary": "Event title",\n'
-                '  "date": "Date (empty string if cannot determine)",\n'
-                '  "time": "Time (empty string if cannot determine)",\n'
+                '  "start_datetime": "ISO 8601 formatted start time (e.g., 2026-01-25T14:00:00+08:00), empty string if cannot determine",\n'
+                '  "end_datetime": "ISO 8601 formatted end time (e.g., 2026-01-25T15:00:00+08:00), empty string if cannot determine",\n'
                 '  "description": "Event description",\n'
                 '  "location": "Event location (empty string if not mentioned)",\n'
-                '  "attendees": "Attendee emails, comma-separated (only valid email addresses in format: user@domain.com, empty string if not mentioned)"\n'
+                '  "attendees": "Attendee emails, comma-separated (only valid email addresses in format: user@domain.com, empty string if not mentioned)",\n'
+                '  "date": "Original date string (for UI display, e.g., tomorrow, 2026-01-25)",\n'
+                '  "time": "Original time string (for UI display, e.g., 14:00, 2:00 PM)"\n'
                 "}}\n\n"
-                "Important: The attendees field must only contain valid email addresses (format: user@domain.com). If the prompt only mentions names without emails, leave it empty.\n"
+                "Important requirements:\n"
+                "- start_datetime and end_datetime must be complete ISO 8601 format (YYYY-MM-DDTHH:MM:SS+08:00)\n"
+                "- If date or time cannot be determined, start_datetime and end_datetime can be empty strings\n"
+                "- date and time fields preserve original input for UI display and editing\n"
+                "- Default timezone is Asia/Taipei (+08:00)\n"
+                "- Default duration is 1 hour\n"
+                "- The attendees field must only contain valid email addresses (format: user@domain.com). If the prompt only mentions names without emails, leave it empty\n"
                 "Output only JSON, nothing else. Please use English."
             )
         
@@ -184,14 +137,32 @@ def generate_calendar_draft(
         # 生成事件內容
         try:
             chain = calendar_prompt | llm | StrOutputParser()
-            event_content = chain.invoke({"prompt": prompt})
+            event_content = chain.invoke({
+                "prompt": prompt,
+                "current_date_str": current_date_str,
+                "current_date_iso": current_date_iso,
+                "current_weekday_cn": current_weekday_cn,
+                "current_weekday_en": current_weekday_en,
+                "event_creation_guideline": event_creation_guideline,
+                "time_parsing_guideline": time_parsing_guideline,
+                "location_handling_guideline": location_handling_guideline
+            })
         except Exception as e:
             # 處理 Groq API 錯誤
             fallback_llm = handle_groq_error(e)
             if fallback_llm:
                 print("   ⚠️ [CalendarAgent] Groq API 額度已用完，已切換到本地 MLX 模型")
                 chain = calendar_prompt | fallback_llm | StrOutputParser()
-                event_content = chain.invoke({"prompt": prompt})
+                event_content = chain.invoke({
+                    "prompt": prompt,
+                    "current_date_str": current_date_str,
+                    "current_date_iso": current_date_iso,
+                    "current_weekday_cn": current_weekday_cn,
+                    "current_weekday_en": current_weekday_en,
+                    "event_creation_guideline": event_creation_guideline,
+                    "time_parsing_guideline": time_parsing_guideline,
+                    "location_handling_guideline": location_handling_guideline
+                })
             else:
                 raise
         
@@ -220,58 +191,51 @@ def generate_calendar_draft(
                 "attendees": ""
             }
         
-        # 檢查缺失的資訊
+        # 【二輪修正機制】驗證並修正 LLM 輸出的日期時間
+        # 優先使用 LLM 直接輸出的 ISO 8601 格式，如果無效則請求 LLM 修正（而非直接 fallback 到 Python）
+        start_datetime, end_datetime, date_str, time_str = validate_and_correct_datetime(
+            llm_output=event_data,
+            current_datetime=current_datetime,
+            prompt=prompt,
+            user_language=user_language,
+            max_retries=2,
+            parse_datetime_fallback=parse_datetime
+        )
+        
+        # 檢查缺失的資訊（用於 UI 顯示）
         missing_info = {}
-        if not event_data.get("date") or not event_data.get("date").strip():
+        if not date_str or not date_str.strip():
             missing_info["date"] = True
-        if not event_data.get("time") or not event_data.get("time").strip():
+        if not time_str or not time_str.strip():
             missing_info["time"] = True
         
-        # 解析日期和時間
-        date_str = event_data.get("date", "").strip()
-        time_str = event_data.get("time", "").strip()
+        # 【二輪修正機制】驗證並修正 LLM 輸出的地點
+        # 先讓 LLM 根據指南標準化地點，再調用 Google Maps API 驗證
+        # 將 start_datetime 轉換為 datetime 對象用於計算交通時間
+        from datetime import datetime as dt
+        try:
+            event_dt = dt.fromisoformat(start_datetime.replace('+08:00', ''))
+        except:
+            event_dt = None
         
-        # 如果日期或時間缺失，使用預設值但標記為缺失
-        if not date_str:
-            date_str = "今天"  # 預設使用今天
-        if not time_str:
-            time_str = None  # 時間缺失，將在下拉選單中選擇
+        location, location_info, location_suggestion = validate_and_correct_location(
+            llm_output=event_data,
+            prompt=prompt,
+            user_language=user_language,
+            max_retries=2,
+            enrich_location_info_fallback=enrich_location_info,
+            event_datetime=event_dt
+        )
         
-        start_datetime, end_datetime = parse_datetime(date_str, time_str)
-        
-        # 【Google Maps 整合】驗證並豐富地點資訊
-        location = event_data.get("location", "").strip()
-        location_info = None
-        location_suggestion = ""
-        
-        if location:
-            try:
-                # 將 start_datetime 轉換為 datetime 對象用於計算交通時間
-                from datetime import datetime as dt
-                try:
-                    event_dt = dt.fromisoformat(start_datetime.replace('+08:00', ''))
-                except:
-                    event_dt = None
-                
-                # 豐富地點資訊（驗證地址、計算交通時間）
-                location_info = enrich_location_info(location, event_dt)
-                
-                # 如果地址驗證成功，使用標準化地址
-                if location_info.get("validated"):
-                    location = location_info.get("standardized_address", location)
-                    location_suggestion = location_info.get("suggestion", "")
-                    print(f"   🗺️ [GoogleMaps] 地點已驗證並標準化：{location}")
-                    if location_info.get("travel_time_info"):
-                        travel_info = location_info["travel_time_info"]
-                        print(f"   🗺️ [GoogleMaps] 交通時間：{travel_info.get('duration_text', 'N/A')}")
-                else:
-                    # 地址驗證失敗，保留原始地址但記錄警告
-                    location_suggestion = location_info.get("suggestion", "")
-                    print(f"   ⚠️ [GoogleMaps] 地點驗證失敗：{location_suggestion}")
-            except Exception as e:
-                # Google Maps API 調用失敗，不影響事件創建，只記錄警告
-                print(f"   ⚠️ [GoogleMaps] 地點資訊豐富化失敗：{e}，將使用原始地址")
-                location_suggestion = f"⚠️ 無法驗證地址（{str(e)}），將使用原始地址"
+        # 【二輪修正機制】驗證並修正 LLM 輸出的參與者郵箱
+        # 優先使用 LLM 根據指南提取和驗證，而非直接使用 Python 正則
+        attendees = validate_and_correct_attendees(
+            llm_output=event_data,
+            prompt=prompt,
+            user_language=user_language,
+            max_retries=2,
+            validate_and_clean_emails_fallback=validate_and_clean_emails
+        )
         
         # 構建事件字典
         event_dict = {
@@ -280,7 +244,7 @@ def generate_calendar_draft(
             "end_datetime": end_datetime,
             "description": event_data.get("description", ""),
             "location": location,  # 使用標準化後的地址（如果驗證成功）
-            "attendees": event_data.get("attendees", ""),
+            "attendees": attendees,  # 使用驗證和修正後的參與者郵箱
             "timezone": "Asia/Taipei",
             "date": date_str,  # 保留原始日期字串
             "time": time_str if time_str else "",  # 保留原始時間字串

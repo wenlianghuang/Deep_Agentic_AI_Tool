@@ -10,6 +10,7 @@ from ..utils.llm_utils import get_llm, handle_groq_error
 from ..tools.email_tool import send_email
 from .email_reflection_agent import reflect_on_email, generate_improved_email
 from ..config import MAX_REFLECTION_ITERATION
+from ..guidelines import get_guideline
 
 
 def detect_language(text: str) -> str:
@@ -58,19 +59,22 @@ def generate_email_draft(
         # 獲取 LLM
         llm = get_llm()
         
+        # 【Parlant 整合】獲取郵件撰寫指南
+        email_guideline = get_guideline("email", "email_writing")
+        
         # 根據語言選擇對應的 prompt 模板
         if user_language == 'zh':
-            # 中文 prompt 模板
+            # 中文 prompt 模板（整合 Parlant 指南）
             email_prompt_template = (
                 "你是一位專業的郵件撰寫助手。請根據以下用戶提示，撰寫一封專業、禮貌的郵件草稿。\n\n"
+                "【郵件撰寫指南】\n{email_guideline}\n\n"
                 "用戶提示：{prompt}\n\n"
                 "收件人：{recipient}\n\n"
-                "請生成完整的郵件內容，包括：\n"
-                "1. 適當的問候語\n"
-                "2. 清晰的主體內容（根據用戶提示）\n"
-                "3. 適當的結尾\n"
-                "4. 簽名部分請使用 [您的姓名] 和 [公司名稱] 作為佔位符，讓使用者自行填寫\n\n"
-                "郵件應該專業、禮貌、簡潔明瞭。請使用中文撰寫。直接輸出郵件正文內容，不需要包含主題行。"
+                "請嚴格遵循上述指南生成郵件。特別注意：\n"
+                "- 簽名部分必須使用 [您的姓名] 和 [公司名稱] 作為佔位符\n"
+                "- 根據用戶提示調整語氣（正式/非正式）\n"
+                "- 確保結構完整（問候語、主體、結尾、簽名）\n\n"
+                "直接輸出郵件正文內容，不需要包含主題行。"
             )
             subject_prompt_template = (
                 "請根據以下郵件內容，生成一個簡潔、專業的郵件主題（不超過50個字）：\n\n"
@@ -79,17 +83,17 @@ def generate_email_draft(
             )
             default_subject = "郵件"
         else:
-            # 英文 prompt 模板
+            # 英文 prompt 模板（整合 Parlant 指南）
             email_prompt_template = (
                 "You are a professional email writing assistant. Please write a professional and polite email draft based on the following user prompt.\n\n"
+                "【Email Writing Guidelines】\n{email_guideline}\n\n"
                 "User prompt: {prompt}\n\n"
                 "Recipient: {recipient}\n\n"
-                "Please generate a complete email content including:\n"
-                "1. Appropriate greeting\n"
-                "2. Clear main content (based on the user prompt)\n"
-                "3. Appropriate closing\n"
-                "4. For the signature section, use [Your Name] and [Company Name] as placeholders for the user to fill in\n\n"
-                "The email should be professional, polite, and concise. Please write in English. Output only the email body content, do not include the subject line."
+                "Please strictly follow the guidelines above. Pay special attention to:\n"
+                "- The signature section must use [Your Name] and [Company Name] as placeholders\n"
+                "- Adjust the tone (formal/informal) based on the user prompt\n"
+                "- Ensure complete structure (greeting, body, closing, signature)\n\n"
+                "Output only the email body content, do not include the subject line."
             )
             subject_prompt_template = (
                 "Please generate a concise and professional email subject (no more than 50 characters) based on the following email content:\n\n"
@@ -104,9 +108,11 @@ def generate_email_draft(
         # 生成郵件內容
         try:
             chain = email_prompt | llm | StrOutputParser()
+            # 【Parlant 整合】傳入指南參數
             email_body = chain.invoke({
                 "prompt": prompt,
-                "recipient": recipient
+                "recipient": recipient,
+                "email_guideline": email_guideline
             })
         except Exception as e:
             # 處理 Groq API 錯誤
@@ -116,7 +122,8 @@ def generate_email_draft(
                 chain = email_prompt | fallback_llm | StrOutputParser()
                 email_body = chain.invoke({
                     "prompt": prompt,
-                    "recipient": recipient
+                    "recipient": recipient,
+                    "email_guideline": email_guideline
                 })
             else:
                 raise
@@ -334,6 +341,9 @@ def generate_and_send_email(prompt: str, recipient: str) -> str:
         
         # 獲取 LLM
         llm = get_llm()
+        
+        # 【Parlant 整合】獲取郵件撰寫指南
+        email_guideline = get_guideline("email", "email_writing")
         
         # 根據語言選擇對應的 prompt 模板
         if user_language == 'zh':
