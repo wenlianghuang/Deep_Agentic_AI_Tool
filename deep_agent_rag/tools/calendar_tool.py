@@ -195,7 +195,7 @@ def create_calendar_event(
         }
         
         # 創建事件
-        event_result = service.events().insert(calendarId='primary', body=event).execute()
+        event_result = service.events().insert(calendarId='primary', body=event, sendUpdates='all').execute()
         
         event_link = event_result.get('htmlLink', '')
         event_id = event_result.get('id', '')
@@ -299,7 +299,8 @@ def update_calendar_event(
         updated_event = service.events().update(
             calendarId='primary',
             eventId=event_id,
-            body=event
+            body=event,
+            sendUpdates='all'
         ).execute()
         
         event_link = updated_event.get('htmlLink', '')

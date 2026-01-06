@@ -24,34 +24,26 @@ from langchain_core.messages import HumanMessage
 from .llm_adapter import LangChainLLMAdapter
 from .adaptive_rag_selector import AdaptiveRAGSelector, RAGMethod
 
-# 添加 Learn_RAG 到 Python 路徑
-# 計算 Learn_RAG 的路徑（與 Deep_Agentic_AI_Tool 在同一目錄下）
+# 添加項目根目錄到 Python 路徑（這樣可以導入 src 模組）
+# 從 deep_agent_rag/rag/private_file_rag.py 向上找到 Deep_Agentic_AI_Tool 根目錄
 current_file = Path(__file__).resolve()
 # 從 deep_agent_rag/rag/private_file_rag.py 向上找到 Deep_Agentic_AI_Tool 根目錄
+# private_file_rag.py -> rag/ -> deep_agent_rag/ -> Deep_Agentic_AI_Tool/
 deep_agent_root = current_file.parent.parent.parent.parent
-learn_rag_path = deep_agent_root.parent / "Learn_RAG"
 
-# 如果 Learn_RAG 不在預期位置，嘗試其他可能的位置
-if not learn_rag_path.exists():
-    # 嘗試當前工作目錄的父目錄
-    cwd = Path.cwd()
-    learn_rag_path = cwd.parent / "Learn_RAG"
-    
-    if not learn_rag_path.exists():
-        # 嘗試直接使用絕對路徑
-        learn_rag_path = Path("/Users/matthuang/Desktop/Learn_RAG")
-
-# 將 Learn_RAG 目錄添加到 Python 路徑（這樣可以導入 src 模組）
-# 注意：需要將 Learn_RAG 目錄本身添加到路徑，因為 src 模組在 Learn_RAG/src/ 下
-if learn_rag_path.exists() and learn_rag_path.is_dir():
-    if str(learn_rag_path) not in sys.path:
-        sys.path.insert(0, str(learn_rag_path))
-    print(f"✓ 找到 Learn_RAG 項目: {learn_rag_path}")
-    print(f"  Python 路徑已添加: {learn_rag_path}")
+# 檢查 src 目錄是否存在（應該在項目根目錄下）
+src_path = deep_agent_root / "src"
+if src_path.exists() and src_path.is_dir():
+    # 將項目根目錄添加到 Python 路徑（不是 src 目錄本身）
+    # 這樣可以通過 from src.xxx import xxx 導入
+    if str(deep_agent_root) not in sys.path:
+        sys.path.insert(0, str(deep_agent_root))
+    print(f"✓ 找到本地 src 模組: {src_path}")
+    print(f"  項目根目錄已添加到 Python 路徑: {deep_agent_root}")
 else:
-    print(f"⚠️ 無法找到 Learn_RAG 項目")
-    print(f"   嘗試的路徑: {learn_rag_path}")
-    print(f"   請確保 Learn_RAG 項目在: {deep_agent_root.parent / 'Learn_RAG'}")
+    print(f"⚠️ 無法找到 src 目錄")
+    print(f"   預期路徑: {src_path}")
+    print(f"   項目根目錄: {deep_agent_root}")
 
 # 嘗試導入 Learn_RAG 模組
 # 注意：document_processor.py 在頂層導入了 arxiv，所以需要先安裝依賴
@@ -78,13 +70,13 @@ try:
     
     if missing_deps:
         print(f"⚠️ 缺少以下依賴包: {', '.join(missing_deps)}")
-        print(f"\n💡 請安裝 Learn_RAG 項目的依賴:")
+        print(f"\n💡 請安裝 RAG 系統所需的依賴:")
         print(f"   方法 1: 使用 pip")
         print(f"   pip install {' '.join(missing_deps)}")
-        print(f"\n   方法 2: 使用 uv (推薦，如果 Learn_RAG 使用 uv)")
-        print(f"   cd {learn_rag_path}")
+        print(f"\n   方法 2: 使用 uv (推薦)")
+        print(f"   cd {deep_agent_root}")
         print(f"   uv sync")
-        print(f"\n   方法 3: 安裝所有 Learn_RAG 依賴")
+        print(f"\n   方法 3: 安裝所有依賴")
         print(f"   pip install arxiv langchain-community langchain-text-splitters chromadb sentence-transformers rank-bm25 pypdf docx2txt langchain-experimental")
         LEARN_RAG_AVAILABLE = False
     else:
@@ -104,22 +96,23 @@ try:
         # 不再需要導入 OllamaLLM，因為我們使用 Deep_Agentic_AI_Tool 的統一 LLM 系統（get_llm()）
         # from src.llm_integration import OllamaLLM
         LEARN_RAG_AVAILABLE = True
-        print("✓ 成功導入 Learn_RAG 模組（包含進階 RAG 方法）")
+        print("✓ 成功導入 RAG 模組（本地集成版本，包含進階 RAG 方法）")
         
 except ImportError as e:
     error_msg = str(e)
-    print(f"⚠️ 無法導入 Learn_RAG 模組: {error_msg}")
-    print(f"\n💡 請安裝 Learn_RAG 項目的依賴:")
+    print(f"⚠️ 無法導入 RAG 模組: {error_msg}")
+    print(f"\n💡 請安裝 RAG 系統所需的依賴:")
     print(f"   pip install arxiv langchain-community langchain-text-splitters chromadb sentence-transformers rank-bm25 pypdf docx2txt langchain-experimental")
     print(f"\n   或者:")
-    print(f"   cd {learn_rag_path}")
+    print(f"   cd {deep_agent_root}")
     print(f"   uv sync")
     LEARN_RAG_AVAILABLE = False
 except Exception as e:
     error_msg = str(e)
-    print(f"⚠️ 導入 Learn_RAG 模組時發生錯誤: {error_msg}")
+    print(f"⚠️ 導入 RAG 模組時發生錯誤: {error_msg}")
     print(f"   當前 Python 路徑: {sys.path[:3]}")
-    print(f"   Learn_RAG 路徑: {learn_rag_path}")
+    print(f"   項目根目錄: {deep_agent_root}")
+    print(f"   src 目錄: {src_path}")
     LEARN_RAG_AVAILABLE = False
 
 
@@ -1236,134 +1229,6 @@ def reset_private_rag_instance():
     """重置全局實例"""
     global _private_rag_instance
     _private_rag_instance = None
-
-
-"""
-私有文件 RAG 系統
-集成 Learn_RAG 的功能，支持上傳私有文件（PDF、DOCX、TXT）並使用 RAG 回答問題
-
-LLM 使用策略：
-- 優先使用 Groq API（如果配置了 API 金鑰）
-- 其次使用 Ollama（如果服務正在運行）
-- 最後使用 MLX 本地模型（作為備選方案）
-"""
-import os
-import sys
-import time
-from pathlib import Path
-from typing import Optional, Dict, List, Tuple
-import tempfile
-import shutil
-
-# 導入 Deep_Agentic_AI_Tool 的 LLM 工具
-# 這樣可以使用統一的 LLM 優先順序策略（Groq -> Ollama -> MLX）
-from ..utils.llm_utils import get_llm
-from langchain_core.messages import HumanMessage
-
-# 導入 LLM 適配器和智能選擇器
-from .llm_adapter import LangChainLLMAdapter
-from .adaptive_rag_selector import AdaptiveRAGSelector, RAGMethod
-
-# 添加 Learn_RAG 到 Python 路徑
-# 計算 Learn_RAG 的路徑（與 Deep_Agentic_AI_Tool 在同一目錄下）
-current_file = Path(__file__).resolve()
-# 從 deep_agent_rag/rag/private_file_rag.py 向上找到 Deep_Agentic_AI_Tool 根目錄
-deep_agent_root = current_file.parent.parent.parent.parent
-learn_rag_path = deep_agent_root.parent / "Learn_RAG"
-
-# 如果 Learn_RAG 不在預期位置，嘗試其他可能的位置
-if not learn_rag_path.exists():
-    # 嘗試當前工作目錄的父目錄
-    cwd = Path.cwd()
-    learn_rag_path = cwd.parent / "Learn_RAG"
-    
-    if not learn_rag_path.exists():
-        # 嘗試直接使用絕對路徑
-        learn_rag_path = Path("/Users/matthuang/Desktop/Learn_RAG")
-
-# 將 Learn_RAG 目錄添加到 Python 路徑（這樣可以導入 src 模組）
-# 注意：需要將 Learn_RAG 目錄本身添加到路徑，因為 src 模組在 Learn_RAG/src/ 下
-if learn_rag_path.exists() and learn_rag_path.is_dir():
-    if str(learn_rag_path) not in sys.path:
-        sys.path.insert(0, str(learn_rag_path))
-    print(f"✓ 找到 Learn_RAG 項目: {learn_rag_path}")
-    print(f"  Python 路徑已添加: {learn_rag_path}")
-else:
-    print(f"⚠️ 無法找到 Learn_RAG 項目")
-    print(f"   嘗試的路徑: {learn_rag_path}")
-    print(f"   請確保 Learn_RAG 項目在: {deep_agent_root.parent / 'Learn_RAG'}")
-
-# 嘗試導入 Learn_RAG 模組
-# 注意：document_processor.py 在頂層導入了 arxiv，所以需要先安裝依賴
-try:
-    # 先檢查必要的依賴是否已安裝
-    import importlib
-    
-    required_deps = {
-        "arxiv": "arxiv",
-        "langchain_community": "langchain-community",
-        "langchain_text_splitters": "langchain-text-splitters",
-        "chromadb": "chromadb",
-        "sentence_transformers": "sentence-transformers",
-        "rank_bm25": "rank-bm25",
-        "pypdf": "pypdf",
-    }
-    
-    missing_deps = []
-    for module_name, package_name in required_deps.items():
-        try:
-            importlib.import_module(module_name)
-        except ImportError:
-            missing_deps.append(package_name)
-    
-    if missing_deps:
-        print(f"⚠️ 缺少以下依賴包: {', '.join(missing_deps)}")
-        print(f"\n💡 請安裝 Learn_RAG 項目的依賴:")
-        print(f"   方法 1: 使用 pip")
-        print(f"   pip install {' '.join(missing_deps)}")
-        print(f"\n   方法 2: 使用 uv (推薦，如果 Learn_RAG 使用 uv)")
-        print(f"   cd {learn_rag_path}")
-        print(f"   uv sync")
-        print(f"\n   方法 3: 安裝所有 Learn_RAG 依賴")
-        print(f"   pip install arxiv langchain-community langchain-text-splitters chromadb sentence-transformers rank-bm25 pypdf docx2txt langchain-experimental")
-        LEARN_RAG_AVAILABLE = False
-    else:
-        # 所有依賴都已安裝，嘗試導入模組
-        from src.document_processor import DocumentProcessor
-        from src.retrievers.bm25_retriever import BM25Retriever
-        from src.retrievers.vector_retriever import VectorRetriever
-        from src.retrievers.hybrid_search import HybridSearch
-        from src.retrievers.reranker import Reranker, RAGPipeline
-        from src.prompt_formatter import PromptFormatter
-        # 導入進階 RAG 方法
-        from src.subquery_rag import SubQueryDecompositionRAG
-        from src.hyde_rag import HyDERAG
-        from src.step_back_rag import StepBackRAG
-        from src.hybrid_subquery_hyde_rag import HybridSubqueryHyDERAG
-        from src.triple_hybrid_rag import TripleHybridRAG
-        # 不再需要導入 OllamaLLM，因為我們使用 Deep_Agentic_AI_Tool 的統一 LLM 系統（get_llm()）
-        # from src.llm_integration import OllamaLLM
-        LEARN_RAG_AVAILABLE = True
-        print("✓ 成功導入 Learn_RAG 模組（包含進階 RAG 方法）")
-        
-except ImportError as e:
-    error_msg = str(e)
-    print(f"⚠️ 無法導入 Learn_RAG 模組: {error_msg}")
-    print(f"\n💡 請安裝 Learn_RAG 項目的依賴:")
-    print(f"   pip install arxiv langchain-community langchain-text-splitters chromadb sentence-transformers rank-bm25 pypdf docx2txt langchain-experimental")
-    print(f"\n   或者:")
-    print(f"   cd {learn_rag_path}")
-    print(f"   uv sync")
-    LEARN_RAG_AVAILABLE = False
-except Exception as e:
-    error_msg = str(e)
-    print(f"⚠️ 導入 Learn_RAG 模組時發生錯誤: {error_msg}")
-    print(f"   當前 Python 路徑: {sys.path[:3]}")
-    print(f"   Learn_RAG 路徑: {learn_rag_path}")
-    LEARN_RAG_AVAILABLE = False
-
-
-class PrivateFileRAG:
     """
     私有文件 RAG 系統管理器
     

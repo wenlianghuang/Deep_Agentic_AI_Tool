@@ -8,6 +8,7 @@ from langchain_core.output_parsers import StrOutputParser
 
 from .state import DeepAgentState
 from ..utils.llm_utils import get_llm, handle_groq_error
+from ..guidelines import get_guideline, get_customer_journey
 
 
 def planner_node(state: DeepAgentState, llm=None):
@@ -42,44 +43,29 @@ def planner_node(state: DeepAgentState, llm=None):
         ]
         is_academic_related = any(keyword in query_lower for keyword in academic_keywords)
         
-        # 【關鍵改進點 2】根據問題類型動態生成提示詞
+        # 【Parlant 整合】使用指南系統取代硬編碼的提示詞
+        task_planning_guideline = get_guideline("research", "task_planning")
+        customer_journey = get_customer_journey("research")
+        
+        # 根據問題類型提供上下文
+        query_context = ""
         if is_academic_related and not is_stock_related:
-            # 純學術理論問題：專注於 PDF 知識庫和學術搜尋
-            prompt_template = (
-                "你是一個資深研究規劃員。請針對用戶的問題：'{query}'\n"
-                "拆解出 3-5 個具體的研究步驟。\n\n"
-                "【重要】這是一個學術理論問題，請專注於：\n"
-                "1. 查詢 PDF 知識庫中的相關理論、方法和概念\n"
-                "2. 搜尋網路上相關的學術資料、論文和最新研究\n"
-                "3. 比較和分析不同概念或方法的差異\n"
-                "4. 總結理論要點、優缺點和應用場景\n\n"
-                "【請勿使用】股票查詢工具，因為問題與股票無關。\n\n"
-                "請只輸出清單，每行一個任務，格式為：數字. 任務描述"
-            )
+            query_context = "【問題類型】這是一個學術理論問題，請專注於 PDF 知識庫和學術搜尋，不要包含股票查詢任務。"
         elif is_stock_related:
-            # 股票相關問題：包含股票查詢、新聞、PDF 知識庫（如果涉及理論）
-            prompt_template = (
-                "你是一個資深研究規劃員。請針對用戶的問題：'{query}'\n"
-                "拆解出 3-5 個具體的研究步驟，例如：\n"
-                "1. 查詢基礎財報數據和營運狀況\n"
-                "2. 搜尋近期重大新聞和市場動態\n"
-                "3. 查詢 PDF 知識庫中的相關理論或方法（如適用）\n"
-                "4. 分析產業競爭力和未來前景\n"
-                "請只輸出清單，每行一個任務，格式為：數字. 任務描述"
-            )
+            query_context = "【問題類型】這是一個股票相關問題，應包含財務數據查詢、市場新聞等任務。"
         else:
-            # 通用問題：根據問題內容智能選擇工具
-            prompt_template = (
-                "你是一個資深研究規劃員。請針對用戶的問題：'{query}'\n"
-                "拆解出 3-5 個具體的研究步驟。\n\n"
-                "可用的研究方式包括：\n"
-                "- 查詢 PDF 知識庫（如果問題涉及學術理論、論文內容或研究方法）\n"
-                "- 搜尋網路（獲取最新資訊、新聞或一般知識）\n"
-                "- 查詢股票資訊（僅當問題明確涉及股票代碼、公司名稱或財務數據時）\n\n"
-                "【重要】請根據問題的實際需求，選擇合適的研究方式。\n"
-                "如果問題與股票無關，請不要包含股票查詢任務。\n\n"
-                "請只輸出清單，每行一個任務，格式為：數字. 任務描述"
-            )
+            query_context = "【問題類型】這是一個通用問題，請根據問題內容智能選擇研究方式。"
+        
+        # 構建統一的提示詞模板，使用指南系統
+        journey_steps = customer_journey.get("steps", [""])[0] if customer_journey else ""
+        prompt_template = (
+            "你是一個資深研究規劃員。請針對用戶的問題：'{query}'\n"
+            "拆解出 3-5 個具體的研究步驟。\n\n"
+            f"{query_context}\n\n"
+            "【任務規劃指南】\n{task_planning_guideline}\n\n"
+            f"【客戶旅程】{journey_steps}\n\n"
+            "請只輸出清單，每行一個任務，格式為：數字. 任務描述"
+        )
         
         prompt = ChatPromptTemplate.from_template(prompt_template)
         chain = prompt | llm | StrOutputParser()

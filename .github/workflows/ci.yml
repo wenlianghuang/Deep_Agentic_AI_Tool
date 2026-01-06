@@ -22,9 +22,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     
     - name: Install uv
-      run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      uses: astral-sh/setup-uv@v5
     
     - name: Install linting tools
       run: |
