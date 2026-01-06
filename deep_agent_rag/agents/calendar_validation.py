@@ -699,3 +699,284 @@ def validate_and_correct_attendees(
         print("   ⚠️ [CalendarValidation] 所有 LLM 修正嘗試失敗（參與者郵箱），且未提供 fallback 函數")
         return ""
 
+
+def is_location_clear(location: str) -> bool:
+    """
+    檢查地點是否清晰（簡單檢查，不驗證有效性）
+    
+    Args:
+        location: 地點字符串
+    
+    Returns:
+        是否為清晰的地點描述（非空且有一定長度）
+    """
+    if not location or not location.strip():
+        return True  # 空字符串視為有效（表示沒有地點）
+    
+    # 檢查是否包含一些基本的地點特徵（城市、街道、建築物名稱等）
+    # 如果長度太短（少於 3 個字符），可能不夠清晰
+    if len(location.strip()) < 3:
+        return False
+    
+    return True
+
+
+def build_location_validation_error_message(
+    location: str,
+    prompt: str,
+    google_maps_error: str = ""
+) -> str:
+    """
+    構建地點驗證錯誤訊息，幫助 LLM 理解問題
+    
+    Args:
+        location: 原始地點字符串
+        prompt: 用戶原始提示
+        google_maps_error: Google Maps API 驗證錯誤訊息（可選）
+    
+    Returns:
+        錯誤訊息
+    """
+    errors = []
+    
+    if google_maps_error:
+        errors.append(f"Google Maps 驗證失敗：{google_maps_error}")
+        errors.append("")
+    
+    errors.append(f"地點描述可能不夠清晰：'{location}'")
+    errors.append("要求：")
+    errors.append("- 使用完整地址（包含城市、街道、門牌號等）")
+    errors.append("- 如果地點模糊（如「公司附近」），請提供更具體的地址")
+    errors.append("- 確保地址格式符合 Google Calendar 要求")
+    errors.append("- 如果用戶提示中沒有地點，則留空")
+    errors.append(f"\n用戶原始提示：{prompt}")
+    
+    return "\n".join(errors)
+
+
+def request_llm_location_correction(
+    prompt: str,
+    original_output: dict,
+    error_message: str,
+    user_language: str = 'zh'
+) -> dict:
+    """
+    請求 LLM 修正地點格式錯誤（二輪修正機制）
+    
+    Args:
+        prompt: 用戶原始提示
+        original_output: LLM 的原始輸出
+        error_message: 驗證錯誤訊息
+        user_language: 用戶語言
+    
+    Returns:
+        修正後的事件數據字典
+    """
+    llm = get_llm()
+    
+    # 獲取地點處理指南
+    location_handling_guideline = get_guideline("calendar", "location_handling")
+    event_creation_guideline = get_guideline("calendar", "event_creation")
+    
+    if user_language == 'zh':
+        correction_prompt_template = (
+            "你剛才輸出的地點描述可能不夠清晰或格式不正確。請根據「地點處理指南」重新標準化和輸出地點。\n\n"
+            "【地點處理指南】\n{location_handling_guideline}\n\n"
+            "【事件創建指南】\n{event_creation_guideline}\n\n"
+            "【用戶原始提示】\n{prompt}\n\n"
+            "【你剛才的輸出】\n"
+            "地點：{original_location}\n\n"
+            "【驗證錯誤訊息】\n{error_message}\n\n"
+            "請仔細閱讀地點處理指南，特別是「地點標準化」的部分，然後重新標準化和輸出地點。\n\n"
+            "請以 JSON 格式輸出，格式如下：\n"
+            "{{\n"
+            '  "location": "事件地點（使用完整地址，如果沒有則為空字符串）"\n'
+            "}}\n\n"
+            "重要要求：\n"
+            "- 使用完整地址（包含城市、街道、門牌號等）\n"
+            "- 如果地點模糊，嘗試從用戶提示中推斷更具體的地址\n"
+            "- 如果無法確定地點，保持為空字符串\n"
+            "- 確保地址格式符合 Google Calendar 要求\n"
+            "只輸出 JSON，不要其他內容。"
+        )
+    else:
+        correction_prompt_template = (
+            "The location description you just output may be unclear or incorrectly formatted. Please re-standardize and output the location according to the 'Location Handling Guidelines'.\n\n"
+            "【Location Handling Guidelines】\n{location_handling_guideline}\n\n"
+            "【Event Creation Guidelines】\n{event_creation_guideline}\n\n"
+            "【User's Original Prompt】\n{prompt}\n\n"
+            "【Your Previous Output】\n"
+            "Location: {original_location}\n\n"
+            "【Validation Error Message】\n{error_message}\n\n"
+            "Please carefully read the Location Handling Guidelines, especially the 'Location Standardization' section, then re-standardize and output the location.\n\n"
+            "Please output in JSON format as follows:\n"
+            "{{\n"
+            '  "location": "Event location (use complete address, empty string if not mentioned)"\n'
+            "}}\n\n"
+            "Important requirements:\n"
+            "- Use complete address (including city, street, house number, etc.)\n"
+            "- If location is vague, try to infer a more specific address from the user's prompt\n"
+            "- If location cannot be determined, keep it as empty string\n"
+            "- Ensure address format meets Google Calendar requirements\n"
+            "Output only JSON, nothing else."
+        )
+    
+    correction_prompt = ChatPromptTemplate.from_template(correction_prompt_template)
+    
+    try:
+        chain = correction_prompt | llm | StrOutputParser()
+        corrected_content = chain.invoke({
+            "prompt": prompt,
+            "location_handling_guideline": location_handling_guideline,
+            "event_creation_guideline": event_creation_guideline,
+            "original_location": original_output.get("location", ""),
+            "error_message": error_message
+        })
+    except Exception as e:
+        fallback_llm = handle_groq_error(e)
+        if fallback_llm:
+            print("   ⚠️ [CalendarValidation] Groq API 額度已用完，已切換到本地 MLX 模型（地點修正階段）")
+            chain = correction_prompt | fallback_llm | StrOutputParser()
+            corrected_content = chain.invoke({
+                "prompt": prompt,
+                "location_handling_guideline": location_handling_guideline,
+                "event_creation_guideline": event_creation_guideline,
+                "original_location": original_output.get("location", ""),
+                "error_message": error_message
+            })
+        else:
+            raise
+    
+    # 解析 JSON 響應
+    import json
+    try:
+        corrected_content = corrected_content.strip()
+        if corrected_content.startswith('```'):
+            lines = corrected_content.split('\n')
+            corrected_content = '\n'.join(lines[1:-1])
+        elif corrected_content.startswith('```json'):
+            lines = corrected_content.split('\n')
+            corrected_content = '\n'.join(lines[1:-1])
+        
+        corrected_data = json.loads(corrected_content)
+        return corrected_data
+    except json.JSONDecodeError:
+        # 如果 JSON 解析失敗，返回原始輸出
+        print("   ⚠️ [CalendarValidation] 地點修正階段的 JSON 解析失敗")
+        return original_output
+
+
+def validate_and_correct_location(
+    llm_output: dict,
+    prompt: str,
+    user_language: str = 'zh',
+    max_retries: int = 2,
+    enrich_location_info_fallback=None,
+    event_datetime=None
+) -> tuple[str, dict, str]:
+    """
+    驗證並修正 LLM 輸出的地點（使用 LLM 修正，然後調用 Google Maps API）
+    
+    Args:
+        llm_output: LLM 的原始輸出字典
+        prompt: 用戶原始提示
+        user_language: 用戶語言
+        max_retries: 最大重試次數
+        enrich_location_info_fallback: Google Maps API 函數（可選，用於驗證）
+        event_datetime: 事件日期時間（可選，用於計算交通時間）
+    
+    Returns:
+        (location, location_info, location_suggestion) 元組
+        - location: 標準化後的地點字符串
+        - location_info: Google Maps API 返回的完整資訊（如果調用成功）
+        - location_suggestion: 地點建議訊息
+    """
+    location = llm_output.get("location", "").strip()
+    location_info = None
+    location_suggestion = ""
+    
+    # 如果沒有地點，直接返回
+    if not location:
+        return "", None, ""
+    
+    # 第一層：檢查地點是否清晰（簡單檢查）
+    if not is_location_clear(location):
+        print(f"   🔄 [CalendarValidation] 檢測到地點描述不夠清晰，開始 LLM 修正流程（最多 {max_retries} 次嘗試）...")
+        
+        for attempt in range(max_retries):
+            error_msg = build_location_validation_error_message(location, prompt)
+            
+            print(f"   🔄 [CalendarValidation] 第 {attempt + 1} 次修正嘗試（地點標準化）...")
+            corrected = request_llm_location_correction(
+                prompt=prompt,
+                original_output=llm_output,
+                error_message=error_msg,
+                user_language=user_language
+            )
+            
+            corrected_location = corrected.get("location", "").strip()
+            
+            if is_location_clear(corrected_location):
+                print(f"   ✅ [CalendarValidation] 第 {attempt + 1} 次修正成功（地點標準化）！")
+                location = corrected_location
+                break
+            
+            # 更新為修正後的版本，準備下一輪
+            location = corrected_location
+            llm_output = corrected
+    
+    # 第二層：調用 Google Maps API 驗證（如果提供了 fallback 函數）
+    if enrich_location_info_fallback and location:
+        try:
+            location_info = enrich_location_info_fallback(location, event_datetime)
+            
+            # 如果地址驗證成功，使用標準化地址
+            if location_info.get("validated"):
+                location = location_info.get("standardized_address", location)
+                location_suggestion = location_info.get("suggestion", "")
+                print(f"   🗺️ [GoogleMaps] 地點已驗證並標準化：{location}")
+                if location_info.get("travel_time_info"):
+                    travel_info = location_info["travel_time_info"]
+                    print(f"   🗺️ [GoogleMaps] 交通時間：{travel_info.get('duration_text', 'N/A')}")
+            else:
+                # 地址驗證失敗，嘗試 LLM 修正
+                google_maps_error = location_info.get("suggestion", "地址驗證失敗")
+                print(f"   ⚠️ [GoogleMaps] 地點驗證失敗：{google_maps_error}")
+                
+                # 如果 Google Maps 驗證失敗，請求 LLM 修正（最多 1 次，避免過度調用）
+                if max_retries > 0:
+                    error_msg = build_location_validation_error_message(
+                        location, prompt, google_maps_error
+                    )
+                    print(f"   🔄 [CalendarValidation] Google Maps 驗證失敗，請求 LLM 修正地點...")
+                    corrected = request_llm_location_correction(
+                        prompt=prompt,
+                        original_output={"location": location},
+                        error_message=error_msg,
+                        user_language=user_language
+                    )
+                    corrected_location = corrected.get("location", "").strip()
+                    if corrected_location and corrected_location != location:
+                        # 再次嘗試 Google Maps 驗證
+                        try:
+                            location_info = enrich_location_info_fallback(corrected_location, event_datetime)
+                            if location_info.get("validated"):
+                                location = location_info.get("standardized_address", corrected_location)
+                                location_suggestion = location_info.get("suggestion", "")
+                                print(f"   ✅ [CalendarValidation] LLM 修正後，Google Maps 驗證成功！")
+                            else:
+                                location_suggestion = location_info.get("suggestion", google_maps_error)
+                        except Exception as e:
+                            location_suggestion = f"⚠️ 無法驗證地址（{str(e)}），將使用原始地址"
+                    else:
+                        location_suggestion = google_maps_error
+                else:
+                    location_suggestion = google_maps_error
+                    
+        except Exception as e:
+            # Google Maps API 調用失敗，不影響事件創建，只記錄警告
+            print(f"   ⚠️ [GoogleMaps] 地點資訊豐富化失敗：{e}，將使用原始地址")
+            location_suggestion = f"⚠️ 無法驗證地址（{str(e)}），將使用原始地址"
+    
+    return location, location_info, location_suggestion
+

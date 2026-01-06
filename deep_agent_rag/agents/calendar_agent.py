@@ -20,6 +20,7 @@ from .calendar_validation import (
     request_llm_correction,
     validate_and_correct_datetime,
     validate_and_correct_attendees,
+    validate_and_correct_location,
     detect_language,
     parse_datetime
 )
@@ -208,39 +209,23 @@ def generate_calendar_draft(
         if not time_str or not time_str.strip():
             missing_info["time"] = True
         
-        # 【Google Maps 整合】驗證並豐富地點資訊
-        location = event_data.get("location", "").strip()
-        location_info = None
-        location_suggestion = ""
+        # 【二輪修正機制】驗證並修正 LLM 輸出的地點
+        # 先讓 LLM 根據指南標準化地點，再調用 Google Maps API 驗證
+        # 將 start_datetime 轉換為 datetime 對象用於計算交通時間
+        from datetime import datetime as dt
+        try:
+            event_dt = dt.fromisoformat(start_datetime.replace('+08:00', ''))
+        except:
+            event_dt = None
         
-        if location:
-            try:
-                # 將 start_datetime 轉換為 datetime 對象用於計算交通時間
-                from datetime import datetime as dt
-                try:
-                    event_dt = dt.fromisoformat(start_datetime.replace('+08:00', ''))
-                except:
-                    event_dt = None
-                
-                # 豐富地點資訊（驗證地址、計算交通時間）
-                location_info = enrich_location_info(location, event_dt)
-                
-                # 如果地址驗證成功，使用標準化地址
-                if location_info.get("validated"):
-                    location = location_info.get("standardized_address", location)
-                    location_suggestion = location_info.get("suggestion", "")
-                    print(f"   🗺️ [GoogleMaps] 地點已驗證並標準化：{location}")
-                    if location_info.get("travel_time_info"):
-                        travel_info = location_info["travel_time_info"]
-                        print(f"   🗺️ [GoogleMaps] 交通時間：{travel_info.get('duration_text', 'N/A')}")
-                else:
-                    # 地址驗證失敗，保留原始地址但記錄警告
-                    location_suggestion = location_info.get("suggestion", "")
-                    print(f"   ⚠️ [GoogleMaps] 地點驗證失敗：{location_suggestion}")
-            except Exception as e:
-                # Google Maps API 調用失敗，不影響事件創建，只記錄警告
-                print(f"   ⚠️ [GoogleMaps] 地點資訊豐富化失敗：{e}，將使用原始地址")
-                location_suggestion = f"⚠️ 無法驗證地址（{str(e)}），將使用原始地址"
+        location, location_info, location_suggestion = validate_and_correct_location(
+            llm_output=event_data,
+            prompt=prompt,
+            user_language=user_language,
+            max_retries=2,
+            enrich_location_info_fallback=enrich_location_info,
+            event_datetime=event_dt
+        )
         
         # 【二輪修正機制】驗證並修正 LLM 輸出的參與者郵箱
         # 優先使用 LLM 根據指南提取和驗證，而非直接使用 Python 正則

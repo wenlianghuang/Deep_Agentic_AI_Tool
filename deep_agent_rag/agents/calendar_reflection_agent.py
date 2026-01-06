@@ -13,10 +13,12 @@ from .calendar_validation import (
     request_llm_correction,
     validate_and_correct_datetime,
     validate_and_correct_attendees,
+    validate_and_correct_location,
     detect_language,
     parse_datetime
 )
 from ..tools.calendar_tool import validate_and_clean_emails
+from ..tools.googlemaps_tool import enrich_location_info
 
 
 def reflect_on_calendar_event(
@@ -353,17 +355,39 @@ def generate_improved_calendar_event(
             validate_and_clean_emails_fallback=validate_and_clean_emails
         )
         
+        # 【二輪修正機制】驗證並修正改進版本的地點
+        merged_data_for_location = {
+            "location": improved_data.get("location", "").strip() or original_event_dict.get("location", "")
+        }
+        # 將 start_datetime 轉換為 datetime 對象用於計算交通時間
+        from datetime import datetime as dt
+        try:
+            event_dt = dt.fromisoformat(start_datetime.replace('+08:00', ''))
+        except:
+            event_dt = None
+        
+        location, location_info, location_suggestion = validate_and_correct_location(
+            llm_output=merged_data_for_location,
+            prompt=prompt,
+            user_language=user_language,
+            max_retries=2,
+            enrich_location_info_fallback=enrich_location_info,
+            event_datetime=event_dt
+        )
+        
         # 構建改進後的事件字典
         improved_event_dict = {
             "summary": improved_data.get("summary", original_summary),
             "start_datetime": start_datetime,
             "end_datetime": end_datetime,
             "description": improved_data.get("description", original_description),
-            "location": improved_data.get("location", original_location),
+            "location": location,  # 使用驗證和修正後的地點
             "attendees": attendees,  # 使用驗證和修正後的參與者郵箱
             "timezone": original_event_dict.get("timezone", "Asia/Taipei"),
             "date": date_str,
-            "time": time_str if time_str else ""
+            "time": time_str if time_str else "",
+            "location_info": location_info,  # 保存完整的地點資訊
+            "location_suggestion": location_suggestion  # 保存地點建議訊息
         }
         
         return improved_event_dict
