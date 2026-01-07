@@ -42,6 +42,11 @@ def query_pdf_knowledge(query: str, rag_retriever=None) -> str:
     當問題涉及論文內容、研究概念、方法論或學術理論時使用此工具。
     
     現在使用 Private File RAG 系統，支持多文件、進階 RAG 方法。
+    
+    這個函數會智能擴展查詢：
+    1. 如果查詢中沒有明確的產品名稱，會先進行初步檢索
+    2. 從初步檢索結果和查詢本身推斷可能的產品名稱
+    3. 使用擴展後的查詢進行完整檢索
     """
     if not rag_retriever:
         return "PDF 知識庫未載入，無法查詢。"
@@ -51,32 +56,151 @@ def query_pdf_knowledge(query: str, rag_retriever=None) -> str:
         
         # 檢查是否是 Private File RAG 實例
         from ..rag.private_file_rag import PrivateFileRAG
+        from ..utils.llm_utils import get_llm
+        from langchain_core.messages import HumanMessage
         
-        if isinstance(rag_retriever, PrivateFileRAG):
-            # 使用 Private File RAG 的 query 方法
-            result = rag_retriever.query(
+        if not isinstance(rag_retriever, PrivateFileRAG):
+            return "PDF 知識庫格式不正確，請重新初始化。"
+        
+        # 已知的產品名稱列表
+        product_names = [
+            "Lumina-Grid", "Gaia-7", "Nebula-X", "Deep-Void", "Synapse-Link",
+            "Lumina Grid", "Gaia 7", "Nebula X", "Deep Void", "Synapse Link"
+        ]
+        
+        # 檢查查詢中是否已經包含產品名稱
+        query_lower = query.lower()
+        has_product_in_query = any(
+            name.lower() in query_lower for name in product_names
+        )
+        
+        # 如果查詢中沒有產品名稱，嘗試智能擴展
+        expanded_query = query
+        if not has_product_in_query:
+            print(f"   🔍 [查詢擴展] 查詢中沒有明確的產品名稱，嘗試智能擴展...")
+            
+            # 策略 1: 先進行一次初步檢索，查看 PDF 內容
+            # 使用較大的 top_k 來獲取更多候選結果
+            preliminary_result = rag_retriever.query(
                 query=query,
-                top_k=5,  # 檢索前 5 個相關片段
-                use_llm=True  # 使用 LLM 生成回答
+                top_k=10,  # 獲取更多結果以便分析
+                use_llm=False  # 只檢索，不生成回答
             )
             
-            if result.get("success"):
-                answer = result.get("answer", "")
-                if answer:
-                    # 可選：添加使用的 RAG 方法信息（用於調試）
-                    rag_method = result.get("rag_method", "basic")
-                    if rag_method != "basic":
-                        print(f"   📊 [RAG] 使用 {rag_method} 方法")
-                    return answer
-                else:
-                    return "在 PDF 知識庫中未找到相關資訊。"
+            if preliminary_result.get("success") and preliminary_result.get("results"):
+                # 從初步檢索結果中提取文本
+                contexts = []
+                for res in preliminary_result.get("results", [])[:5]:  # 只取前5個結果
+                    contexts.append(res.get("content", ""))
+                
+                combined_context = "\n\n".join(contexts)
+                # 限制長度避免過長
+                context_snippet = combined_context[:2000]
+                
+                # 使用 LLM 從查詢和檢索結果中推斷產品名稱
+                try:
+                    llm = get_llm()
+                    infer_prompt = f"""根據以下查詢和 PDF 內容片段，推斷用戶可能想查詢哪個產品的信息。
+
+查詢：{query}
+
+PDF 內容片段：
+{context_snippet}
+
+已知產品列表：{', '.join(product_names)}
+
+請根據查詢內容和 PDF 片段推斷最可能的產品名稱。
+如果能夠確定產品名稱，請只返回產品名稱（例如："Lumina-Grid"）。
+如果無法確定，請返回 "無"。
+只返回產品名稱或"無"，不要其他解釋。"""
+                    
+                    messages = [HumanMessage(content=infer_prompt)]
+                    response = llm.invoke(messages)
+                    inferred_product = response.content.strip() if hasattr(response, 'content') else str(response).strip()
+                    
+                    # 檢查推斷的產品是否在已知列表中
+                    if inferred_product and inferred_product.lower() not in ["無", "无", "none", "no", ""]:
+                        # 找到匹配的產品名稱
+                        matched_product = None
+                        for name in product_names:
+                            if name.lower() in inferred_product.lower() or inferred_product.lower() in name.lower():
+                                matched_product = name
+                                break
+                        
+                        if matched_product:
+                            expanded_query = f"{matched_product} {query}"
+                            print(f"   ✅ [查詢擴展] 從 PDF 內容推斷產品名稱 '{matched_product}'，擴展查詢為：{expanded_query}")
+                        else:
+                            # 如果推斷的產品不在列表中，但看起來像產品名稱，也可以嘗試
+                            # 檢查是否包含常見的產品名稱模式
+                            for name in product_names:
+                                if any(word.lower() in inferred_product.lower() for word in name.split() if len(word) > 2):
+                                    expanded_query = f"{name} {query}"
+                                    print(f"   ✅ [查詢擴展] 從推斷結果 '{inferred_product}' 匹配到產品 '{name}'，擴展查詢為：{expanded_query}")
+                                    break
+                except Exception as e:
+                    print(f"   ⚠️ [查詢擴展] LLM 推斷產品名稱失敗: {e}，使用原始查詢")
+            
+            # 策略 2: 如果初步檢索沒有幫助，嘗試直接從查詢推斷
+            if expanded_query == query:
+                try:
+                    llm = get_llm()
+                    # 檢查查詢中是否包含版本號、技術規格等關鍵詞
+                    version_keywords = ["版本", "version", "v1", "v2", "v3", "v1.", "v2.", "v3.", "v4", "v5"]
+                    spec_keywords = ["時脈", "頻率", "clock", "GHz", "核心", "晶片", "chip", "core", "能源", "轉換率"]
+                    
+                    has_version_or_spec = any(
+                        keyword in query_lower for keyword in version_keywords + spec_keywords
+                    )
+                    
+                    if has_version_or_spec:
+                        infer_prompt = f"""根據以下查詢，推斷用戶可能想查詢哪個產品的信息。
+
+查詢：{query}
+
+已知產品列表：{', '.join(product_names)}
+
+請根據查詢內容推斷最可能的產品名稱。如果查詢中沒有明確的產品信息，請返回 "無"。
+只返回產品名稱或"無"，不要其他解釋。"""
+                        
+                        messages = [HumanMessage(content=infer_prompt)]
+                        response = llm.invoke(messages)
+                        inferred_product = response.content.strip() if hasattr(response, 'content') else str(response).strip()
+                        
+                        if inferred_product and inferred_product.lower() not in ["無", "无", "none", "no", ""]:
+                            # 找到匹配的產品名稱
+                            matched_product = None
+                            for name in product_names:
+                                if name.lower() in inferred_product.lower() or inferred_product.lower() in name.lower():
+                                    matched_product = name
+                                    break
+                            
+                            if matched_product:
+                                expanded_query = f"{matched_product} {query}"
+                                print(f"   ✅ [查詢擴展] 從查詢推斷產品名稱 '{matched_product}'，擴展查詢為：{expanded_query}")
+                except Exception as e:
+                    print(f"   ⚠️ [查詢擴展] 從查詢推斷產品名稱失敗: {e}，使用原始查詢")
+        
+        # 使用擴展後的查詢進行完整檢索
+        result = rag_retriever.query(
+            query=expanded_query,  # 使用擴展後的查詢
+            top_k=5,  # 檢索前 5 個相關片段
+            use_llm=True  # 使用 LLM 生成回答
+        )
+        
+        if result.get("success"):
+            answer = result.get("answer", "")
+            if answer:
+                # 可選：添加使用的 RAG 方法信息（用於調試）
+                rag_method = result.get("rag_method", "basic")
+                if rag_method != "basic":
+                    print(f"   📊 [RAG] 使用 {rag_method} 方法")
+                return answer
             else:
-                error = result.get("error", "未知錯誤")
-                return f"PDF 知識庫查詢失敗: {error}"
+                return "在 PDF 知識庫中未找到相關資訊。"
         else:
-            # 向後兼容：如果不是 PrivateFileRAG 實例，嘗試舊的接口
-            # 但這應該不會發生，因為我們已經完全替換了
-            return "PDF 知識庫格式不正確，請重新初始化。"
+            error = result.get("error", "未知錯誤")
+            return f"PDF 知識庫查詢失敗: {error}"
             
     except Exception as e:
         return f"PDF 知識庫查詢失敗: {e}"
@@ -109,7 +233,7 @@ def extract_keywords_from_pdf(query: str, rag_retriever=None) -> str:
         # 先查詢 PDF 獲取相關內容
         result = rag_retriever.query(
             query=query,
-            top_k=3,
+            top_k=10,
             use_llm=False  # 只檢索，不生成回答
         )
         
