@@ -33,10 +33,11 @@ def init_rag_system() -> Optional[PrivateFileRAG]:
     try:
         # 創建 Private File RAG 實例
         # 啟用自適應選擇和進階 RAG 方法
+        # 優化參數以提高檢索準確性
         private_rag = PrivateFileRAG(
             use_semantic_chunking=False,  # 可以根據需要改為 True
-            chunk_size=500,
-            chunk_overlap=100,
+            chunk_size=800,  # 增加 chunk 大小以保留更多上下文
+            chunk_overlap=150,  # 增加重疊以保持連貫性
             enable_adaptive_selection=True,  # 啟用自適應選擇最佳 RAG 方法
             selected_rag_method=None  # None 表示自動選擇
         )
