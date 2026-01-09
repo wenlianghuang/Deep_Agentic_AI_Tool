@@ -57,8 +57,18 @@ def research_agent_node(state: DeepAgentState, llm_with_tools=None):
             f"【研究行為指南】\n{research_behavior_guideline}\n\n"
             f"可用的工具詳細說明：\n"
             f"- query_pdf_knowledge(query: str): 查詢 PDF 知識庫，用於學術理論、論文內容、研究方法等\n"
+            f"- extract_keywords_from_pdf(query: str): 從 PDF 知識庫中提取學術關鍵字，用於 arXiv 搜尋\n"
+            f"- search_arxiv_papers(keywords_json: str, max_results: int): 使用 arXiv API 搜尋相關論文\n"
+            f"- add_arxiv_papers_to_rag(arxiv_ids_json: str): 下載 arXiv 論文並添加到 RAG 系統中，擴展知識庫\n"
             f"- search_web(query: str): 網路搜尋，用於獲取最新資訊、新聞、一般知識等\n"
-            f"- get_company_deep_info(ticker: str): 股票資訊查詢，僅用於查詢股票代碼對應的公司財務數據\n"
+            f"- get_company_deep_info(ticker: str): 股票資訊查詢，僅用於查詢股票代碼對應的公司財務數據\n\n"
+            f"【學術研究工作流程建議】\n"
+            f"當進行深度學術研究時，建議按以下順序使用工具：\n"
+            f"1. 先使用 query_pdf_knowledge 查詢本地 PDF 知識庫\n"
+            f"2. 如果本地資料不足，使用 extract_keywords_from_pdf 提取關鍵字\n"
+            f"3. 使用 search_arxiv_papers 搜尋相關論文\n"
+            f"4. 使用 add_arxiv_papers_to_rag 將相關論文添加到知識庫\n"
+            f"5. 再次使用 query_pdf_knowledge 查詢擴展後的知識庫，獲得更全面的答案\n"
         ))
         
         # 構建上下文：包含原始問題、已完成任務和研究筆記
