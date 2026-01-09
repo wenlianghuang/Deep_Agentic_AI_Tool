@@ -444,8 +444,19 @@ def _create_private_file_rag_interface():
                 # 確保 history 是 dict 格式
                 history = ensure_dict_format(history)
                 history.append({"role": "user", "content": message})
-                history.append({"role": "assistant", "content": error_msg})
-                yield history, error_msg
+                
+                # 先顯示用戶消息
+                yield history, "🔄 正在處理您的問題..."
+                
+                # 添加等待消息
+                history_with_waiting = history.copy()
+                history_with_waiting.append({"role": "assistant", "content": "🤔 正在思考..."})
+                yield history_with_waiting, "🔄 正在處理您的問題..."
+                
+                # 替換為錯誤消息
+                history_with_error = history.copy()
+                history_with_error.append({"role": "assistant", "content": error_msg})
+                yield history_with_error, error_msg
                 return
             
             # 設置 RAG 方法選擇參數
@@ -462,6 +473,14 @@ def _create_private_file_rag_interface():
             history = ensure_dict_format(history)
             history.append({"role": "user", "content": message})
             
+            # 先 yield 用戶消息，讓它先顯示出來
+            yield history, "🔄 正在處理您的問題..."
+            
+            # 添加一個臨時的等待消息到 chatbot 界面
+            history_with_waiting = history.copy()
+            history_with_waiting.append({"role": "assistant", "content": "🤔 正在思考並生成回答..."})
+            yield history_with_waiting, "🔄 正在處理您的問題..."
+            
             # 執行查詢（傳入對話歷史，使用流式輸出）
             if use_llm:
                 # 使用流式查詢
@@ -473,7 +492,6 @@ def _create_private_file_rag_interface():
                 
                 # 初始化回答
                 accumulated_answer = ""
-                history_with_user = history.copy()
                 final_result = {}
                 
                 # 逐步接收流式回答
@@ -481,8 +499,9 @@ def _create_private_file_rag_interface():
                     if chunk.get("success") is False:
                         error = chunk.get("error", "未知錯誤")
                         error_msg = f"❌ 查詢失敗: {error}"
-                        history_with_user.append({"role": "assistant", "content": error_msg})
-                        yield history_with_user, error_msg
+                        history_with_error = history.copy()
+                        history_with_error.append({"role": "assistant", "content": error_msg})
+                        yield history_with_error, error_msg
                         return
                     
                     # 保存最後一個 chunk 作為最終結果
@@ -493,8 +512,8 @@ def _create_private_file_rag_interface():
                     if new_answer:
                         # 累積回答
                         accumulated_answer = new_answer
-                        # 更新歷史
-                        history_with_answer = history_with_user.copy()
+                        # 更新歷史：用戶消息已經在 history 中，現在添加助手回答
+                        history_with_answer = history.copy()
                         history_with_answer.append({"role": "assistant", "content": accumulated_answer})
                         yield history_with_answer, "🔄 正在生成回答..."
                 
@@ -509,16 +528,17 @@ def _create_private_file_rag_interface():
                 
                 # 確保最終回答完整
                 if accumulated_answer:
-                    history_with_answer = history_with_user.copy()
+                    history_with_answer = history.copy()
                     history_with_answer.append({"role": "assistant", "content": accumulated_answer})
                     yield history_with_answer, status_msg
                 else:
                     error_msg = "⚠️ LLM 未生成回答（可能 LLM 服務未啟動）"
-                    history_with_answer = history_with_user.copy()
+                    history_with_answer = history.copy()
                     history_with_answer.append({"role": "assistant", "content": error_msg})
                     yield history_with_answer, status_msg
             else:
                 # 不使用 LLM，直接返回檢索結果
+                # 注意：用戶消息和等待消息已經在前面添加並 yield 了
                 result = rag.query(
                     query=message,
                     top_k=int(top_k),
@@ -529,8 +549,10 @@ def _create_private_file_rag_interface():
                 if not result.get("success"):
                     error = result.get("error", "未知錯誤")
                     error_msg = f"❌ 查詢失敗: {error}"
-                    history.append({"role": "assistant", "content": error_msg})
-                    yield history, error_msg
+                    # 替換等待消息為錯誤消息
+                    history_with_error = history.copy()
+                    history_with_error.append({"role": "assistant", "content": error_msg})
+                    yield history_with_error, error_msg
                     return
                 
                 # 格式化檢索結果
@@ -546,8 +568,10 @@ def _create_private_file_rag_interface():
                     if total_time > 0:
                         status_msg += f" | 耗時: {total_time:.2f}秒"
                 
-                history.append({"role": "assistant", "content": answer})
-                yield history, status_msg
+                # 替換等待消息為實際答案
+                history_with_answer = history.copy()
+                history_with_answer.append({"role": "assistant", "content": answer})
+                yield history_with_answer, status_msg
             
         except Exception as e:
             error_msg = f"❌ 查詢時發生錯誤: {str(e)}"
