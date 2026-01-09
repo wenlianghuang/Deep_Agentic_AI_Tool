@@ -36,6 +36,59 @@ def search_web(query: str) -> str:
         return f"搜尋錯誤: {e}"
 
 
+def get_product_names_from_files(data_dir: str = "data") -> list:
+    """
+    從 data 文件夾中的 PDF 文件名動態提取產品名稱。
+    
+    Args:
+        data_dir: PDF 文件所在的文件夾路徑
+        
+    Returns:
+        產品名稱列表（包含帶破折號和空格的版本）
+    """
+    import os
+    
+    product_names = []
+    
+    try:
+        # 獲取絕對路徑
+        if not os.path.isabs(data_dir):
+            # 假設相對於專案根目錄
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            data_dir = os.path.join(base_dir, data_dir)
+        
+        if not os.path.exists(data_dir):
+            print(f"   ⚠️ 資料夾不存在: {data_dir}")
+            return []
+        
+        # 掃描 PDF 文件
+        for filename in os.listdir(data_dir):
+            if filename.endswith('.pdf'):
+                # 從文件名中提取產品名稱（例如 "Lumina-Grid 智慧能源控制器.pdf" -> "Lumina-Grid"）
+                # 提取第一個空格前的部分作為產品名稱
+                product_name = filename.split()[0] if ' ' in filename else filename.replace('.pdf', '')
+                
+                # 移除可能的擴展名（如果沒有空格的話）
+                product_name = product_name.replace('.pdf', '')
+                
+                if product_name:
+                    # 添加原始名稱（帶破折號）
+                    product_names.append(product_name)
+                    
+                    # 添加空格版本（將破折號替換為空格）
+                    if '-' in product_name:
+                        product_names.append(product_name.replace('-', ' '))
+        
+        if product_names:
+            print(f"   ✅ 從 {len(set(product_names))//2} 個 PDF 文件中提取產品名稱: {', '.join(set([p for p in product_names if '-' in p]))}")
+        
+    except Exception as e:
+        print(f"   ⚠️ 讀取產品名稱失敗: {e}")
+        # 返回空列表，讓調用者決定是否使用備用列表
+    
+    return product_names
+
+
 def query_pdf_knowledge(query: str, rag_retriever=None) -> str:
     """
     查詢 PDF 知識庫中的相關資訊。
@@ -62,11 +115,16 @@ def query_pdf_knowledge(query: str, rag_retriever=None) -> str:
         if not isinstance(rag_retriever, PrivateFileRAG):
             return "PDF 知識庫格式不正確，請重新初始化。"
         
-        # 已知的產品名稱列表
-        product_names = [
-            "Lumina-Grid", "Gaia-7", "Nebula-X", "Deep-Void", "Synapse-Link",
-            "Lumina Grid", "Gaia 7", "Nebula X", "Deep Void", "Synapse Link"
-        ]
+        # 已知的產品名稱列表 - 從 data 文件夾動態載入
+        product_names = get_product_names_from_files()
+        
+        # 如果動態載入失敗，使用備用列表
+        if not product_names:
+            print("   ⚠️ 無法從文件載入產品名稱，使用備用列表")
+            product_names = [
+                "Lumina-Grid", "Gaia-7", "Nebula-X", "Deep-Void", "Synapse-Link",
+                "Lumina Grid", "Gaia 7", "Nebula X", "Deep Void", "Synapse Link"
+            ]
         
         # 檢查查詢中是否已經包含產品名稱
         query_lower = query.lower()
