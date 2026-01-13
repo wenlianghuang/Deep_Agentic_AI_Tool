@@ -16,6 +16,7 @@ from ..utils.llm_utils import get_llm_type, is_using_local_llm
 from .email_interface import _create_email_interface
 from .calendar_interface import _create_calendar_interface
 from .private_file_rag_interface import _create_private_file_rag_interface
+from .simple_chatbot_interface import create_simple_chatbot_interface
 
 
 def run_research_agent(query: str, graph, thread_id: str = None) -> Iterator[Tuple[str, str, str, str, str]]:
@@ -211,7 +212,7 @@ def create_gradio_interface(graph):
             <div class="header">
             <h1>🚀 Deep Research Agent with RAG</h1>
             <p><strong>功能特色：</strong></p>
-            <p>📊 股票資訊查詢 | 🌐 網路搜尋 | 📚 PDF 知識庫查詢（Tree of Thoughts 論文）| 📧 智能郵件助手 | 📅 智能行事曆管理 | 📄 私有文件 RAG 問答</p>
+            <p>💬 簡單聊天機器人 | 🔍 Deep Research Agent | 📧 智能郵件助手 | 📅 智能行事曆管理 | 📄 私有文件 RAG 問答</p>
             <p><strong>智能規劃：</strong> 系統會根據問題類型自動選擇合適的研究工具</p>
             <p><strong>本地模型：</strong> 使用 MLX 本地模型，保護隱私，無需 API 金鑰</p>
             </div>
@@ -221,19 +222,23 @@ def create_gradio_interface(graph):
         
         # 使用 Tabs 分離不同功能
         with gr.Tabs() as tabs:
-            # Tab 1: Deep Research Agent
+            # Tab 1: Simple Chatbot
+            with gr.Tab("💬 Simple Chatbot"):
+                _create_simple_chatbot_tab()
+            
+            # Tab 2: Deep Research Agent
             with gr.Tab("🔍 Deep Research Agent"):
                 _create_research_interface(graph)
             
-            # Tab 2: Email Tool
+            # Tab 3: Email Tool
             with gr.Tab("📧 Email Tool"):
                 _create_email_interface()
             
-            # Tab 3: Calendar Tool
+            # Tab 4: Calendar Tool
             with gr.Tab("📅 Calendar Tool"):
                 _create_calendar_interface()
             
-            # Tab 4: Private File RAG
+            # Tab 5: Private File RAG
             with gr.Tab("📚 Private File RAG"):
                 _create_private_file_rag_interface()
     
@@ -372,6 +377,121 @@ def _create_research_interface(graph):
     )
 
 
+def _create_simple_chatbot_tab():
+    """創建簡單聊天機器人標籤頁內容"""
+    from .simple_chatbot_interface import chat_with_llm_streaming, get_llm_status
+    
+    # 標題說明
+    gr.Markdown(
+        """
+        ### 💬 Simple Chatbot - 純粹的對話體驗
+        
+        這是一個簡單的聊天機器人，不包含 RAG、Deep AI Agent 等複雜功能。
+        只專注於自然對話，讓您與 AI 輕鬆交流。
+        """
+    )
+    
+    # LLM 狀態顯示
+    llm_status = gr.Markdown(
+        value=get_llm_status(),
+        elem_classes=["warning-box"]
+    )
+    
+    # 系統提示詞設定
+    with gr.Accordion("⚙️ 進階設定", open=False):
+        system_prompt = gr.Textbox(
+            label="系統提示詞 (System Prompt)",
+            value="你是一個有幫助的AI助手。請用繁體中文回答問題。",
+            lines=3,
+            placeholder="設定 AI 的角色和行為方式..."
+        )
+        
+        gr.Markdown(
+            """
+            **提示詞範例：**
+            - 專業助手：「你是一位專業的技術顧問，擅長解釋複雜的技術概念。」
+            - 創意寫作：「你是一位富有創意的作家，擅長寫作故事和詩歌。」
+            - 學習輔導：「你是一位耐心的老師，擅長用簡單的方式解釋複雜的概念。」
+            """
+        )
+    
+    # 聊天界面
+    chatbot = gr.Chatbot(
+        label="對話記錄",
+        height=400,
+        show_label=True
+    )
+    
+    # 輸入區域
+    msg = gr.Textbox(
+        label="訊息",
+        placeholder="在這裡輸入您的訊息...",
+        lines=2,
+        show_label=False
+    )
+    
+    # 控制按鈕
+    with gr.Row():
+        submit_btn = gr.Button("📤 發送", variant="primary")
+        clear_btn = gr.Button("🗑️ 清除對話", variant="secondary")
+        refresh_status_btn = gr.Button("🔄 更新狀態", variant="secondary")
+    
+    # 示例問題
+    gr.Examples(
+        examples=[
+            "你好！請介紹一下你自己。",
+            "請幫我解釋什麼是機器學習？",
+            "能給我一些學習 Python 的建議嗎？",
+            "請用簡單的方式解釋量子計算。",
+            "寫一首關於春天的短詩。"
+        ],
+        inputs=msg,
+        label="💡 快速試用範例"
+    )
+    
+    # 事件綁定
+    def clear_chat():
+        """清除對話"""
+        return [], ""
+    
+    def refresh_status():
+        """更新 LLM 狀態"""
+        return get_llm_status()
+    
+    # 發送消息事件
+    msg.submit(
+        fn=chat_with_llm_streaming,
+        inputs=[msg, chatbot, system_prompt],
+        outputs=[chatbot],
+        queue=True
+    ).then(
+        fn=lambda: "",
+        outputs=[msg],
+        queue=False
+    )
+    
+    submit_btn.click(
+        fn=chat_with_llm_streaming,
+        inputs=[msg, chatbot, system_prompt],
+        outputs=[chatbot],
+        queue=True
+    ).then(
+        fn=lambda: "",
+        outputs=[msg],
+        queue=False
+    )
+    
+    clear_btn.click(
+        fn=clear_chat,
+        outputs=[chatbot, msg],
+        queue=False
+    )
+    
+    refresh_status_btn.click(
+        fn=refresh_status,
+        outputs=[llm_status],
+        queue=False
+    )
 
 
 
