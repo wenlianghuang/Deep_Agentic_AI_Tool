@@ -4,6 +4,16 @@
 
 ## 🚀 核心功能
 
+### 💬 簡單聊天機器人 (Simple Chatbot)
+- 純粹的對話式聊天體驗
+- 不包含 RAG、Deep AI Agent 等複雜功能
+- 流式輸出，逐字顯示回應
+- 可自訂系統提示詞
+- 完整對話歷史保留
+- 支援本地 MLX 模型和雲端 API
+
+**詳細說明請參考：[Simple Chatbot 使用指南](SIMPLE_CHATBOT_GUIDE.md)**
+
 ### 🔍 深度研究代理 (Deep Research Agent)
 - 智能多步驟研究規劃與執行
 - 自動任務分解（學術、股票、一般查詢）
@@ -129,12 +139,27 @@ CALENDAR_TOKEN_FILE=token.json
 ### 5. 啟動應用
 
 ```bash
+# 使用 Python 直接運行
 python Deep_Agent_Gradio_RAG_localLLM_main.py
+
+# 或使用 uv（推薦）
+uv run Deep_Agent_Gradio_RAG_localLLM_main.py
 ```
 
 Gradio 界面將在以下地址可用：
 - 本地：`http://localhost:7860`
 - 網路：`http://0.0.0.0:7860`
+
+**界面包含以下標籤頁：**
+- 💬 **Simple Chatbot**（簡單聊天機器人）- 純粹的對話體驗
+- 🔍 **Deep Research Agent**（深度研究代理）- 多步驟智能研究
+- 📧 **Email Tool**（郵件助手）- AI 郵件生成與發送
+- 📅 **Calendar Tool**（行事曆管理）- 智能行事曆管理
+- 📚 **Private File RAG**（私有文件問答）- 文件知識庫問答
+
+**💡 提示**：如果您只需要聊天功能，直接點擊「💬 Simple Chatbot」標籤頁即可，無需等待其他功能初始化完成後才能使用。
+
+**詳細使用說明請參考：[Simple Chatbot 使用指南](SIMPLE_CHATBOT_GUIDE.md)**
 
 ## 🎯 使用指南
 

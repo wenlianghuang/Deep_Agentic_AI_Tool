@@ -44,4 +44,6 @@ dependencies = [
     "chromadb>=0.4.22",
     "docx2txt>=0.8",
     "langchain-experimental>=0.0.50",
+    "jieba>=0.42.1",  # 中文分詞工具（用於 Guardrails 內容過濾）
+    "pyyaml>=6.0.0",  # YAML 配置文件解析（用於自定義 Guardrails 配置）
 ]
