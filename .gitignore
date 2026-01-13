@@ -22,3 +22,5 @@ token.json
 
 .cursor/*
 chroma_db*/*
+tests/
+*/guardrails/config/*
