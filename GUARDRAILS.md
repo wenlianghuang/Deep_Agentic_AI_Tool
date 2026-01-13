@@ -1,83 +1,142 @@
-# 🛡️ 內容過濾 Guardrails 文件
+# 🛡️ Hybrid Guardrails System Documentation
 
-## 概述
-本系統為 Simple Chatbot 實作了內容過濾 Guardrails 功能。它使用 `jieba` 進行精確的中文斷詞，並支援英文詞彙的不分大小寫比對，能自動檢測並攔截包含敏感內容的 AI 回應。
+## Overview
+This system implements a **Hybrid Guardrails Content Filtering System**, inspired by NVIDIA NeMo Guardrails. It combines fast keyword density checks with deep semantic topic filtering to provide dual-layer, bi-directional content protection for the Simple Chatbot.
 
-## 主要特點
-*   **雙語支援 (Dual-Language Support)**：精確處理繁體中文與英文。
-*   **基於密度的過濾 (Density-Based Filtering)**：僅在敏感詞彙密度超過 **5%** 時進行攔截（允許學術討論或低頻率出現的情境）。
-*   **零侵入性 (Zero-Intrusion)**：透過 LangChain `RunnableLambda` 無縫整合，不影響對話流程。
-*   **高度可自訂 (Customizable)**：可輕鬆設定關鍵字、門檻值與攔截訊息。
+## Key Features
 
-## 配置設定
-所有設定皆定義於 `deep_agent_rag/ui/simple_chatbot_interface.py`。
+### 🎯 Dual-Layer Filtering Strategy
+1.  **Layer 1: Keyword Density Check (Fast)**
+    *   **Speed**: < 1ms
+    *   **Mechanism**: Uses `jieba` for precise Chinese/English tokenization.
+    *   **Logic**: Blocks if `(Sensitive Words / Total Words)` > Threshold (default 5%).
+2.  **Layer 2: Semantic Topic Filtering (Deep)**
+    *   **Speed**: ~100-200ms
+    *   **Mechanism**: Uses `Sentence Transformers` for semantic similarity.
+    *   **Logic**: Blocks if input matches restricted topics (e.g., politics, sensitive religious debates) based on defined examples.
 
-### 1. 敏感關鍵字列表 (Blocked Keywords)
-系統預設配置了以下敏感詞彙：
-```python
-BLOCKED_KEYWORDS = [
-    "伊斯蘭教", "阿拉", "回教徒", "默罕默德",  # 中文
-    "Islam", "Allah", "Muslim", "Muhammad"      # 英文
-]
+### 🔒 Bi-Directional Protection
+*   **Input Rails**: Filters user queries before they reach the LLM.
+*   **Output Rails**: Filters LLM responses before they are displayed.
+
+### 🎛️ Dynamic Control
+*   **UI Checkbox**: Easily enable/disable Guardrails directly from the Chatbot interface.
+    *   ☑ **Enabled**: Full protection (recommended for production/public use).
+    *   ☐ **Disabled**: No filtering (useful for research/debugging).
+
+## Architecture
+```mermaid
+graph TD
+    UserInput --> InputRails
+    subgraph InputRails
+        KeywordCheck1{Keyword Density > 5%?}
+        SemanticCheck1{Semantic Match > 75%?}
+    end
+    KeywordCheck1 -- Yes --> Block[Block Message]
+    KeywordCheck1 -- No --> SemanticCheck1
+    SemanticCheck1 -- Yes --> Block
+    SemanticCheck1 -- No --> LLM
+    LLM --> OutputRails
+    subgraph OutputRails
+        KeywordCheck2{Keyword Density > 5%?}
+        SemanticCheck2{Semantic Match > 75%?}
+    end
+    KeywordCheck2 -- Yes --> Block
+    KeywordCheck2 -- No --> SemanticCheck2
+    SemanticCheck2 -- Yes --> Block
+    SemanticCheck2 -- No --> Display
 ```
 
-### 2. 門檻設定 (Thresholds)
-*   **密度門檻 (Density Threshold)**：`0.05` (5%)
-*   **計算方式**：`敏感詞數量 / 總詞數`
+## Quick Start
 
-### 3. 攔截訊息 (Blocking Message)
-> "抱歉，您的問題包含敏感內容，無法回答。請換個話題或重新表述您的問題。"
-
-## 運作原理
-1.  **斷詞 (Tokenization)**：將文本切分為詞彙，中文使用 `jieba`，英文使用空白/標準方式分隔。
-2.  **比對 (Matching)**：將詞彙與 `BLOCKED_KEYWORDS` 列表進行比對（英文不區分大小寫）。
-3.  **密度計算 (Density Calculation)**：計算敏感詞彙佔總詞彙的比例。
-4.  **執行動作 (Action)**：
-    *   **若密度 ≥ 5%**：將完整回應替換為預設的攔截訊息。
-    *   **若密度 < 5%**：保留並輸出原始回應。
-
-## 使用方法
-
-### 啟動聊天機器人
+### 1. Launch the Application
 ```bash
 uv run python main.py
 ```
-在 Gradio 介面中打開 **Simple Chatbot** 標籤頁。您可以在「🛡️ 內容過濾 Guardrails」展開區塊中查看目前的 Guardrails 設定。
+Go to the **Simple Chatbot** tab.
 
-### 執行測試
-驗證 Guardrails 邏輯：
+### 2. Guardrails Controls
+*   **Checkbox**: Located at the top of the chat interface. Toggle to enable/disable protection.
+*   **Status Panel**: Expand "🛡️ Guardrails Content Filtering" to view active configurations and topics.
+
+### 3. Run Tests
+Verify the system integrity:
 ```bash
-uv run python test_guardrails.py
+uv run python test_nemo_guardrails.py
 ```
 
-## 自訂指南
+## Configuration
 
-### 新增關鍵字
-編輯 `deep_agent_rag/ui/simple_chatbot_interface.py` 中的 `BLOCKED_KEYWORDS` 列表：
+Configuration files are located in `deep_agent_rag/guardrails/config/`.
+
+### 1. `config.yml` (Main Config)
+Controls global settings and thresholds.
+```yaml
+enabled:
+  keyword_filter: true
+  semantic_filter: true
+  input_rails: true
+  output_rails: true
+
+keyword_filter:
+  threshold: 0.05           # 5% density
+  blocked_keywords: ["keyword1", "keyword2"]
+  blocked_message: "Blocked content message..."
+
+semantic_filter:
+  similarity_threshold: 0.75
+  embeddings:
+    model: "sentence-transformers/all-MiniLM-L6-v2"
+```
+
+### 2. `rails.txt` (Topic Definitions)
+Defines semantic topics using a simplified Colang syntax.
+```text
+TOPIC: politics
+DISPLAY: Politics
+EXAMPLES:
+  - Who should I vote for?
+  - Political scandals
+MESSAGE: I cannot discuss political topics.
+---
+```
+
+## Customization
+
+### Adding Keywords
+Edit `config.yml` under `keyword_filter.blocked_keywords`.
+
+### Adding Semantic Topics
+Append to `rails.txt`:
+```text
+TOPIC: new_topic
+DISPLAY: New Topic Name
+EXAMPLES:
+  - Example phrase 1
+  - Example phrase 2
+MESSAGE: Custom blocking message.
+---
+```
+
+## Implementation Details
+*   **Why Custom?**: Standard `nemoguardrails` had dependency conflicts (langchain/pillow versions). This custom pure-Python implementation resolves those while retaining core functionality.
+*   **Performance**:
+    *   **Lazy Loading**: Semantic models load only when needed.
+    *   **Caching**: Topic embeddings are pre-computed and cached.
+    *   **Fast-Fail**: Keyword checks run first (<1ms) to avoid unnecessary semantic computation.
+
+## Programmatic Usage
 ```python
-BLOCKED_KEYWORDS = [
-    "新關鍵字1",
-    "新關鍵字2",
-    # ...
-]
+from deep_agent_rag.guardrails.nemo_manager import get_guardrail_manager
+
+manager = get_guardrail_manager()
+
+# Check Input
+should_block, msg = manager.check_input("User query")
+
+# Check Output
+should_block, msg = manager.check_output("LLM response")
 ```
-*注意：`jieba` 自定義詞典會在初始化時自動更新。*
-
-### 調整靈敏度
-修改 `KEYWORD_DENSITY_THRESHOLD`：
-```python
-KEYWORD_DENSITY_THRESHOLD = 0.10  # 提高至 10%
-```
-
-## 疑難排解
-*   **jieba 分詞不準確**：請確認 `_init_jieba_custom_dict()` 是否已被呼叫以註冊新關鍵字。
-*   **誤判 (False Positives)**：調整密度門檻或檢視關鍵字列表。
-*   **效能**：系統使用 `jieba` 快取機制；首次載入可能稍慢，後續檢查時間 `< 1ms`。
-
-## 相關檔案
-*   **實作檔案**：`deep_agent_rag/ui/simple_chatbot_interface.py`
-*   **測試檔案**：`test_guardrails.py`
-*   **依賴套件**：需要 `jieba`（已配置於 `pyproject.toml`）。
 
 ---
-**最後更新**：2026-01-13
+**Version**: 2.0 (Hybrid Architecture) | **Last Updated**: 2026-01-13

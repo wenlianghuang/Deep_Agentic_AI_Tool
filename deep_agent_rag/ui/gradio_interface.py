@@ -397,6 +397,14 @@ def _create_simple_chatbot_tab():
         elem_classes=["warning-box"]
     )
     
+    # Guardrails 啟用開關
+    with gr.Row():
+        enable_guardrails_checkbox = gr.Checkbox(
+            label="🛡️ 啟用 Guardrails 內容過濾",
+            value=True,
+            info="啟用後將檢查輸入和輸出內容，阻擋敏感話題"
+        )
+    
     # 系統提示詞設定
     with gr.Accordion("⚙️ 進階設定", open=False):
         system_prompt = gr.Textbox(
@@ -461,7 +469,7 @@ def _create_simple_chatbot_tab():
     # 發送消息事件
     msg.submit(
         fn=chat_with_llm_streaming,
-        inputs=[msg, chatbot, system_prompt],
+        inputs=[msg, chatbot, system_prompt, enable_guardrails_checkbox],
         outputs=[chatbot],
         queue=True
     ).then(
@@ -472,7 +480,7 @@ def _create_simple_chatbot_tab():
     
     submit_btn.click(
         fn=chat_with_llm_streaming,
-        inputs=[msg, chatbot, system_prompt],
+        inputs=[msg, chatbot, system_prompt, enable_guardrails_checkbox],
         outputs=[chatbot],
         queue=True
     ).then(

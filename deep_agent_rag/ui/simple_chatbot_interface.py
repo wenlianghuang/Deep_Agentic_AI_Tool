@@ -2,7 +2,7 @@
 Simple Chatbot Interface
 簡單的聊天機器人界面，不包含 RAG 和 Deep AI Agent 功能
 純粹的對話式聊天機器人
-包含內容過濾 Guardrails 功能
+包含內容過濾 Guardrails 功能（混合式：關鍵字 + 語義過濾）
 """
 import gradio as gr
 from typing import List, Dict, Any
@@ -12,6 +12,7 @@ from langchain_core.runnables import RunnableLambda
 import jieba
 
 from ..utils.llm_utils import get_llm_type, is_using_local_llm, get_llm
+from ..guardrails.nemo_manager import get_guardrail_manager
 
 
 # ==================== Guardrails 配置 ====================
@@ -114,15 +115,18 @@ guardrail_runnable = RunnableLambda(guardrail_filter)
 def chat_with_llm_streaming(
     message: str,
     history: List[Dict[str, str]],
-    system_prompt: str = "你是一個有幫助的AI助手。請用繁體中文回答問題。"
+    system_prompt: str = "你是一個有幫助的AI助手。請用繁體中文回答問題。",
+    enable_guardrails: bool = True
 ):
     """
     與 LLM 進行流式對話（逐字顯示）
+    整合混合式 Guardrails（關鍵字 + 語義過濾）
     
     Args:
         message: 用戶輸入的消息
         history: 對話歷史 (字典格式：[{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...])
         system_prompt: 系統提示詞
+        enable_guardrails: 是否啟用 Guardrails 內容過濾
     
     Yields:
         List[Dict[str, str]]: 更新中的歷史記錄
@@ -137,6 +141,28 @@ def chat_with_llm_streaming(
     yield new_history
     
     try:
+        # ==================== 輸入過濾檢查 ====================
+        # 根據 checkbox 狀態決定是否使用 Guardrails
+        if enable_guardrails:
+            guardrail_mgr = get_guardrail_manager()
+            should_block_input, blocked_message = guardrail_mgr.check_input(message)
+            
+            if should_block_input:
+                # 輸入被阻擋，逐字顯示阻擋訊息
+                print(f"🚫 輸入被阻擋")
+                new_history.append({"role": "assistant", "content": ""})
+                
+                # 按字符逐步顯示阻擋訊息（創造打字效果）
+                for i in range(len(blocked_message)):
+                    new_history[-1] = {"role": "assistant", "content": blocked_message[:i+1]}
+                    yield new_history
+                    time.sleep(0.01)  # 10ms 延遲
+                
+                # 確保完整顯示
+                new_history[-1] = {"role": "assistant", "content": blocked_message}
+                yield new_history
+                return
+        
         # 獲取 LLM
         llm = get_llm()
         
@@ -153,27 +179,74 @@ def chat_with_llm_streaming(
         # 添加當前用戶消息
         messages.append(HumanMessage(content=message))
         
-        # 調用 LLM 獲取完整回應
-        response = llm.invoke(messages)
-        full_response = response.content
-        
-        # ==================== 應用 Guardrails 過濾 ====================
-        # 使用 RunnableLambda 進行內容過濾
-        filtered_response = guardrail_runnable.invoke(full_response)
-        
         # 添加空的助手回應（將逐步填充）
         new_history.append({"role": "assistant", "content": ""})
+        full_response = ""
         
-        # 按字符逐步顯示（使用過濾後的回應）
-        for i in range(len(filtered_response)):
-            # 更新最後一條歷史記錄的機器人回應
-            new_history[-1] = {"role": "assistant", "content": filtered_response[:i+1]}
+        # 使用流式調用獲取回應
+        for chunk in llm.stream(messages):
+            # 獲取內容 (chunk 可能是 BaseMessageChunk)
+            content = chunk.content if hasattr(chunk, "content") else str(chunk)
+            
+            # 按字符平滑顯示內容（增加一點打字感）
+            for char in content:
+                full_response += char
+                new_history[-1] = {"role": "assistant", "content": full_response}
+                yield new_history
+                # 如果是高速模型，稍微延遲一點讓視覺更平滑
+                time.sleep(0.005)
+            
+            # ==================== 輸出過濾即時檢查 (快速層) ====================
+            if enable_guardrails:
+                # 進行快速的關鍵字密度檢查，避免等到生成完才發現
+                should_block_fast, _ = check_content_guardrails(full_response)
+                if should_block_fast:
+                    print(f"🚫 輸出因關鍵字密度被即時阻擋")
+                    # 清空當前內容，準備逐字顯示阻擋訊息
+                    new_history[-1] = {"role": "assistant", "content": ""}
+                    yield new_history
+                    
+                    # 逐字顯示阻擋訊息
+                    for i in range(len(DEFAULT_BLOCKED_MESSAGE)):
+                        new_history[-1] = {"role": "assistant", "content": DEFAULT_BLOCKED_MESSAGE[:i+1]}
+                        yield new_history
+                        time.sleep(0.01)
+                    
+                    # 確保完整顯示
+                    new_history[-1] = {"role": "assistant", "content": DEFAULT_BLOCKED_MESSAGE}
+                    yield new_history
+                    return
+        
+        # ==================== 最終輸出過濾檢查 (含語義) ====================
+        # 根據 checkbox 狀態決定是否使用 Guardrails
+        if enable_guardrails:
+            guardrail_mgr = get_guardrail_manager()
+            # 進行完整的檢查（包含可能較慢的語義過濾）
+            should_block_output, filtered_response = guardrail_mgr.check_output(full_response)
+            
+            if should_block_output:
+                print(f"🚫 輸出被最終語義過濾阻擋")
+                # 清空當前內容，準備逐字顯示過濾後的訊息
+                new_history[-1] = {"role": "assistant", "content": ""}
+                yield new_history
+                
+                # 逐字顯示過濾後的訊息（例如自訂的主題攔截訊息）
+                for i in range(len(filtered_response)):
+                    new_history[-1] = {"role": "assistant", "content": filtered_response[:i+1]}
+                    yield new_history
+                    time.sleep(0.01)
+                
+                # 確保完整顯示
+                new_history[-1] = {"role": "assistant", "content": filtered_response}
+                yield new_history
+            else:
+                # 確保最終顯示的是完整的回應
+                new_history[-1] = {"role": "assistant", "content": full_response}
+                yield new_history
+        else:
+            # 確保完整顯示
+            new_history[-1] = {"role": "assistant", "content": full_response}
             yield new_history
-            time.sleep(0.01)  # 10ms 延遲，創造打字效果
-        
-        # 確保完整顯示
-        new_history[-1] = {"role": "assistant", "content": filtered_response}
-        yield new_history
     
     except Exception as e:
         error_msg = f"❌ 發生錯誤: {str(e)}"
@@ -196,6 +269,62 @@ def get_llm_status() -> str:
             return "✅ **當前使用：Groq API (高速雲端模型)**"
         else:
             return "ℹ️ **當前使用：本地 MLX 模型 (Qwen2.5)**"
+
+
+def get_guardrails_status() -> str:
+    """獲取當前 Guardrails 狀態信息"""
+    try:
+        guardrail_mgr = get_guardrail_manager()
+        status = guardrail_mgr.get_status()
+        topics = guardrail_mgr.get_topics_info()
+        
+        enabled = status.get("enabled", {})
+        keyword_filter = status.get("keyword_filter", {})
+        semantic_filter = status.get("semantic_filter", {})
+        
+        status_text = "# 🛡️ Guardrails 狀態\n\n"
+        status_text += "## 混合過濾策略\n\n"
+        
+        # 關鍵字過濾狀態
+        if enabled.get("keyword_filter", False):
+            status_text += f"✅ **關鍵字過濾**：已啟用\n"
+            status_text += f"   - 密度門檻：{keyword_filter.get('threshold', 0.05):.1%}\n"
+            status_text += f"   - 關鍵字數量：{keyword_filter.get('keywords_count', 0)} 個\n\n"
+        else:
+            status_text += "❌ **關鍵字過濾**：已停用\n\n"
+        
+        # 語義過濾狀態
+        if enabled.get("semantic_filter", False):
+            if semantic_filter.get("initialized", False):
+                status_text += f"✅ **語義主題過濾**：已啟用\n"
+                status_text += f"   - 相似度門檻：{semantic_filter.get('threshold', 0.75):.1%}\n"
+                status_text += f"   - 主題數量：{semantic_filter.get('topics_count', 0)} 個\n\n"
+                
+                if topics:
+                    status_text += "   **主題列表**：\n"
+                    for topic in topics:
+                        status_text += f"   - {topic['display_name']} ({topic['examples_count']} 個範例)\n"
+            else:
+                status_text += "⚠️ **語義主題過濾**：啟用中（模型未初始化）\n\n"
+        else:
+            status_text += "❌ **語義主題過濾**：已停用\n\n"
+        
+        # 防護方向
+        status_text += "\n## 防護方向\n\n"
+        if enabled.get("input_rails", False):
+            status_text += "✅ **輸入過濾**：已啟用（阻擋敏感問題）\n"
+        else:
+            status_text += "❌ **輸入過濾**：已停用\n"
+        
+        if enabled.get("output_rails", False):
+            status_text += "✅ **輸出過濾**：已啟用（過濾回應內容）\n"
+        else:
+            status_text += "❌ **輸出過濾**：已停用\n"
+        
+        return status_text
+    
+    except Exception as e:
+        return f"⚠️ 無法獲取 Guardrails 狀態：{str(e)}"
 
 
 def create_simple_chatbot_interface():
@@ -225,6 +354,14 @@ def create_simple_chatbot_interface():
             elem_classes=["warning-box"]
         )
         
+        # Guardrails 啟用開關
+        with gr.Row():
+            enable_guardrails_checkbox = gr.Checkbox(
+                label="🛡️ 啟用 Guardrails 內容過濾",
+                value=True,
+                info="啟用後將檢查輸入和輸出內容，阻擋敏感話題"
+            )
+        
         # 系統提示詞設定（可選）
         with gr.Accordion("⚙️ 進階設定", open=False):
             system_prompt = gr.Textbox(
@@ -244,23 +381,39 @@ def create_simple_chatbot_interface():
             )
         
         # Guardrails 設定顯示
-        with gr.Accordion("🛡️ 內容過濾 Guardrails", open=False):
+        with gr.Accordion("🛡️ 內容過濾 Guardrails（混合策略）", open=False):
+            guardrails_status_md = gr.Markdown(
+                value=get_guardrails_status()
+            )
+            
+            with gr.Row():
+                refresh_guardrails_btn = gr.Button("🔄 更新 Guardrails 狀態", variant="secondary", size="sm")
+            
             gr.Markdown(
-                f"""
-                **Guardrails 已啟用** ✅
+                """
+                ---
                 
-                本系統使用 `jieba` 進行中英文斷詞與內容過濾：
+                ## 混合策略說明
                 
-                - **攔截門檻**：{KEYWORD_DENSITY_THRESHOLD:.1%} 關鍵字密度
-                - **過濾機制**：敏感詞數 / 總詞數 ≥ {KEYWORD_DENSITY_THRESHOLD:.1%}
-                - **處理方式**：超過門檻時，回應將被替換為預設訊息
-                - **技術實現**：使用 LangChain `RunnableLambda` 串接在 Chain 末端
-                - **支援語言**：繁體中文、英文（不區分大小寫）
+                本系統採用**雙層過濾**策略，受 NeMo Guardrails 啟發：
                 
-                **當前過濾關鍵字列表**：
-                {', '.join([f'「{kw}」' for kw in BLOCKED_KEYWORDS])}
+                ### 第一層：關鍵字密度檢查（快速層）
+                - ⚡ 速度：< 1ms
+                - 🔍 使用 `jieba` 進行中英文斷詞
+                - 📊 計算敏感詞密度（敏感詞數 / 總詞數）
+                - 🎯 適用於：明確的關鍵字匹配
                 
-                ℹ️ 系統會自動分析 AI 回應內容，確保符合使用規範。
+                ### 第二層：語義主題過濾（深度層）
+                - 🤖 使用 Sentence Transformers 語義理解
+                - 🎭 可偵測改寫、隱喻等複雜表達
+                - 📝 基於主題範例進行相似度匹配
+                - 🎯 適用於：主題層級的內容控制
+                
+                ### 雙向防護
+                - 🔒 **輸入過濾**：阻擋敏感問題
+                - 🛡️ **輸出過濾**：確保回應安全
+                
+                ℹ️ 配置文件位於：`deep_agent_rag/guardrails/config/`
                 """
             )
         
@@ -307,10 +460,14 @@ def create_simple_chatbot_interface():
             """更新 LLM 狀態"""
             return get_llm_status()
         
+        def refresh_guardrails_status():
+            """更新 Guardrails 狀態"""
+            return get_guardrails_status()
+        
         # 發送消息事件
         msg.submit(
             fn=chat_with_llm_streaming,
-            inputs=[msg, chatbot, system_prompt],
+            inputs=[msg, chatbot, system_prompt, enable_guardrails_checkbox],
             outputs=[chatbot],
             queue=True
         ).then(
@@ -321,7 +478,7 @@ def create_simple_chatbot_interface():
         
         submit_btn.click(
             fn=chat_with_llm_streaming,
-            inputs=[msg, chatbot, system_prompt],
+            inputs=[msg, chatbot, system_prompt, enable_guardrails_checkbox],
             outputs=[chatbot],
             queue=True
         ).then(
@@ -342,6 +499,12 @@ def create_simple_chatbot_interface():
             queue=False
         )
         
+        refresh_guardrails_btn.click(
+            fn=refresh_guardrails_status,
+            outputs=[guardrails_status_md],
+            queue=False
+        )
+        
         # 頁腳
         gr.Markdown(
             """
@@ -359,7 +522,8 @@ def create_simple_chatbot_interface():
             - 🔧 可自訂系統提示詞
             - 📝 保留完整對話歷史
             - 🚀 支持本地模型和雲端 API
-            - 🛡️ 內建 Guardrails 內容過濾機制（使用 jieba 中文斷詞）
+            - 🛡️ 混合式 Guardrails 內容過濾（關鍵字 + 語義雙層防護）
+            - 🔒 雙向過濾（輸入阻擋 + 輸出過濾）
             """
         )
     
