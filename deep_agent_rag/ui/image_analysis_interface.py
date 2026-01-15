@@ -7,13 +7,15 @@ import os
 import tempfile
 from typing import Tuple, Optional
 
-from ..tools.image_analysis_tool import _analyze_image_internal, get_multimodal_llm
+from ..tools.image_analysis_tool import get_multimodal_llm
+from ..graph.image_analysis_graph import build_image_analysis_graph
 from ..config import (
     OPENAI_API_KEY,
     GOOGLE_GEMINI_API_KEY,
     ANTHROPIC_API_KEY,
     USE_OLLAMA_VISION,
     OLLAMA_VISION_MODEL,
+    MAX_REFLECTION_ITERATION,
 )
 
 
@@ -53,9 +55,9 @@ def analyze_image_ui(
     image: Optional[gr.File],
     question: str,
     progress: Optional[gr.Progress] = None
-) -> Tuple[str, str]:
+) -> Tuple[str, str, str]:
     """
-    分析圖片的 UI 處理函數
+    分析圖片的 UI 處理函數（使用 LangGraph 工作流，包含反思）
     
     Args:
         image: 上傳的圖片文件
@@ -63,17 +65,13 @@ def analyze_image_ui(
         progress: Gradio 進度條（可選）
     
     Returns:
-        (分析結果, 狀態訊息)
+        (分析結果, 反思結果, 狀態訊息)
     """
     if image is None:
-        return "", "❌ 請先上傳一張圖片"
+        return "", "", "❌ 請先上傳一張圖片"
     
     try:
         # 獲取圖片文件路徑
-        if image is None:
-            return "", "❌ 請先上傳一張圖片"
-        
-        # 處理不同類型的輸入
         if isinstance(image, str):
             image_path = image
         elif hasattr(image, 'name'):
@@ -81,51 +79,106 @@ def analyze_image_ui(
         elif isinstance(image, dict) and 'name' in image:
             image_path = image['name']
         else:
-            return "", "❌ 無法讀取圖片文件，請重新上傳"
+            return "", "", "❌ 無法讀取圖片文件，請重新上傳"
         
         # 檢查文件是否存在
         if not image_path or not os.path.exists(image_path):
-            return "", f"❌ 圖片文件不存在：{image_path}"
+            return "", "", f"❌ 圖片文件不存在：{image_path}"
         
         # 顯示當前使用的 API 提供商
         llm, provider = get_multimodal_llm()
         if llm is None:
-            return "", provider  # 返回錯誤訊息
+            return "", "", provider  # 返回錯誤訊息
         
-        status_msg = f"🔄 正在使用 {provider.upper()} 分析圖片..."
+        status_msg = f"🔄 正在使用 {provider.upper()} 分析圖片（包含 AI 反思）..."
         if progress is not None:
-            progress(0.3, desc=status_msg)
+            progress(0.1, desc=status_msg)
         
         # 構建問題（如果提供）
         question_text = question.strip() if question else None
         
-        # 調用分析工具（使用內部函數，避免 @tool 裝飾器的問題）
+        # 構建 LangGraph 工作流
+        graph = build_image_analysis_graph()
+        
+        # 初始化狀態
+        initial_state = {
+            "question": question_text,
+            "image_path": image_path,
+            "analysis_result": "",
+            "reflection_result": "",
+            "improvement_suggestions": "",
+            "needs_revision": False,
+            "iteration": 0,
+            "messages": []
+        }
+        
+        # 執行工作流
+        config = {"configurable": {"thread_id": f"image-analysis-{os.path.basename(image_path)}"}}
+        
+        final_analysis = ""
+        final_reflection = ""
+        current_status = status_msg
+        final_iteration = 0
+        
         if progress is not None:
-            progress(0.5, desc="正在分析圖片內容...")
-        result = _analyze_image_internal(image_path, question=question_text)
+            progress(0.2, desc="開始分析圖片...")
+        
+        # 流式執行工作流
+        for event in graph.stream(initial_state, config, stream_mode="updates"):
+            for node_name, node_state in event.items():
+                iteration = node_state.get("iteration", 0)
+                final_iteration = max(final_iteration, iteration)
+                
+                if progress is not None:
+                    max_iter = MAX_REFLECTION_ITERATION + 1  # +1 因為初始分析也算一輪
+                    progress_val = min(0.2 + (iteration / max_iter) * 0.7, 0.9)
+                    
+                if node_name == "analyze":
+                    current_status = f"🔄 第 {iteration} 輪：正在分析圖片..."
+                    if progress is not None:
+                        progress(progress_val, desc=current_status)
+                
+                elif node_name == "reflection":
+                    current_status = f"🔍 第 {iteration} 輪：正在反思分析結果..."
+                    if "reflection_result" in node_state and node_state["reflection_result"]:
+                        final_reflection = node_state["reflection_result"]
+                    if progress is not None:
+                        progress(progress_val, desc=current_status)
+                
+                elif node_name == "improvement":
+                    current_status = f"✨ 第 {iteration} 輪：正在生成改進版本..."
+                    if progress is not None:
+                        progress(progress_val, desc=current_status)
+                
+                # 更新最終結果
+                if "analysis_result" in node_state:
+                    final_analysis = node_state["analysis_result"]
+                if "reflection_result" in node_state and node_state["reflection_result"]:
+                    final_reflection = node_state["reflection_result"]
         
         if progress is not None:
             progress(1.0, desc="分析完成！")
         
         # 檢查結果是否為錯誤訊息
-        if result.startswith("❌"):
-            return "", result
+        if final_analysis.startswith("❌"):
+            return "", "", final_analysis
         
-        # 返回成功結果
-        final_status = f"✅ 分析完成！使用 {provider.upper()} API"
-        return result, final_status
+        # 構建最終狀態訊息
+        if final_iteration > 1:
+            final_status = f"✅ 分析完成！使用 {provider.upper()} API（經過 {final_iteration} 輪分析）"
+        else:
+            final_status = f"✅ 分析完成！使用 {provider.upper()} API"
+        
+        return final_analysis, final_reflection, final_status
         
     except Exception as e:
         error_msg = f"❌ 分析圖片時發生錯誤：{str(e)}"
         print(f"圖片分析錯誤：{e}")
         import traceback
         traceback.print_exc()
-        return "", error_msg
+        return "", "", error_msg
 
 
-def clear_image_analysis() -> Tuple[None, str, str, str]:
-    """清除所有輸入和輸出"""
-    return None, "", "", "等待上傳圖片..."
 
 
 def _create_image_analysis_interface():
@@ -152,7 +205,12 @@ def _create_image_analysis_interface():
         1. 上傳一張圖片（支持 jpg, png, gif, webp 等格式）
         2. （可選）輸入特定問題，例如："這張圖片中有什麼？"、"描述圖片中的場景"
         3. 點擊「分析圖片」按鈕
-        4. 查看 AI 的分析結果
+        4. 查看 AI 的分析結果和反思評估
+        
+        **✨ 新功能：AI 反思評估**
+        - 系統會自動評估分析結果的質量
+        - 如果分析有改進空間，會自動生成改進版本
+        - 最多進行 {MAX_REFLECTION_ITERATION} 輪改進（避免免費 API 額度快速用完）
         
         **提示：** 如果不輸入問題，系統會進行通用的圖片分析。
         """
@@ -218,8 +276,17 @@ def _create_image_analysis_interface():
             result_display = gr.Textbox(
                 label="📄 分析結果",
                 placeholder="分析結果將顯示在這裡...",
-                lines=20,
+                lines=12,
                 interactive=True  # 設為 True 以便用戶可以複製內容
+            )
+            
+            # 反思結果顯示
+            reflection_display = gr.Textbox(
+                label="🔍 AI 反思評估",
+                placeholder="AI 反思評估結果將顯示在這裡...",
+                lines=8,
+                interactive=False,
+                visible=True
             )
     
     # 更新圖片預覽
@@ -253,14 +320,18 @@ def _create_image_analysis_interface():
     analyze_btn.click(
         fn=analyze_image_ui,
         inputs=[image_input, question_input],
-        outputs=[result_display, status_display],
+        outputs=[result_display, reflection_display, status_display],
         show_progress="full"
     )
     
     # 清除按鈕事件
+    def clear_image_analysis():
+        """清除所有輸入和輸出"""
+        return None, "", "", "", "等待上傳圖片..."
+    
     clear_btn.click(
         fn=clear_image_analysis,
-        outputs=[image_input, question_input, result_display, status_display]
+        outputs=[image_input, question_input, result_display, reflection_display, status_display]
     )
     
     # 示例問題

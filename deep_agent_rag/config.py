@@ -43,7 +43,7 @@ MAX_ITERATIONS = 5
 MAX_RESEARCH_ITERATIONS = 20
 
 # Reflection 配置（通用反思迭代次數）
-MAX_REFLECTION_ITERATION = 0  # 反思的最大迭代次數
+MAX_REFLECTION_ITERATION = int(os.getenv("MAX_REFLECTION_ITERATION", "2"))  # 反思的最大迭代次數（默認2次，避免免費API額度快速用完）
 
 # Groq API 配置
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
@@ -84,7 +84,7 @@ USE_OPENAI_VISION_FIRST = os.getenv("USE_OPENAI_VISION_FIRST", "false").lower() 
 
 # Google Gemini API 配置
 GOOGLE_GEMINI_API_KEY = os.getenv("GOOGLE_GEMINI_API_KEY", "")
-GOOGLE_GEMINI_MODEL = os.getenv("GOOGLE_GEMINI_MODEL", "gemini-1.5-flash")  # gemini-1.5-flash, gemini-1.5-pro
+GOOGLE_GEMINI_MODEL = os.getenv("GOOGLE_GEMINI_MODEL", "gemini-flash-latest")  # gemini-flash-latest, gemini-1.5-flash, gemini-1.5-pro
 USE_GEMINI_FIRST = os.getenv("USE_GEMINI_FIRST", "true").lower() == "true"  # 默認優先使用 Gemini（免費額度較高）
 
 # Anthropic Claude 配置（支持多模態）
