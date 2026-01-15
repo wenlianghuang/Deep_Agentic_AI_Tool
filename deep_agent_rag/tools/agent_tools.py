@@ -5,6 +5,7 @@ Agent 工具定義
 import yfinance as yf
 from langchain_core.tools import tool
 from langchain_community.tools.tavily_search import TavilySearchResults
+from .image_analysis_tool import analyze_image
 
 
 @tool
@@ -566,8 +567,9 @@ def get_tools_list(rag_retriever=None):
             pdf_tool,
             keywords_tool,
             arxiv_search_tool,
-            add_papers_tool
+            add_papers_tool,
+            analyze_image
         ]
     else:
-        return [get_company_deep_info, search_web]
+        return [get_company_deep_info, search_web, analyze_image]
 

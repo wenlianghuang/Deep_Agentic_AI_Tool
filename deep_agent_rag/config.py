@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# 設定 tokenizers 並行性環境變數（解決 fork 警告）
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 # 設定 HuggingFace 模型緩存目錄到外接 SSD
 EXTERNAL_SSD_PATH = "/Volumes/T7_SSD"
 HF_CACHE_DIR = os.path.join(EXTERNAL_SSD_PATH, "huggingface_cache")
@@ -70,6 +73,28 @@ CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar']  # Calendar API �
 
 # Google Maps API 配置
 NORMAL_GOOGLE_MAPS_API_KEY = os.getenv("NORMAL_GOOGLE_MAPS_API_KEY", "")
+
+# 多模態圖片分析 API 配置
+# 優先順序：OpenAI GPT-4 Vision > Google Gemini > Anthropic Claude > Ollama LLaVA
+
+# OpenAI GPT-4 Vision 配置
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")  # gpt-4o, gpt-4o-mini, gpt-4-turbo
+USE_OPENAI_VISION_FIRST = os.getenv("USE_OPENAI_VISION_FIRST", "false").lower() == "true"
+
+# Google Gemini API 配置
+GOOGLE_GEMINI_API_KEY = os.getenv("GOOGLE_GEMINI_API_KEY", "")
+GOOGLE_GEMINI_MODEL = os.getenv("GOOGLE_GEMINI_MODEL", "gemini-1.5-flash")  # gemini-1.5-flash, gemini-1.5-pro
+USE_GEMINI_FIRST = os.getenv("USE_GEMINI_FIRST", "true").lower() == "true"  # 默認優先使用 Gemini（免費額度較高）
+
+# Anthropic Claude 配置（支持多模態）
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_VISION_MODEL = os.getenv("ANTHROPIC_VISION_MODEL", "claude-3-5-sonnet-20241022")  # claude-3-5-sonnet, claude-3-opus
+USE_ANTHROPIC_VISION = os.getenv("USE_ANTHROPIC_VISION", "false").lower() == "true"
+
+# Ollama LLaVA 配置（本地多模態模型，完全免費）
+OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava")  # llava, llava:13b, llava:34b
+USE_OLLAMA_VISION = os.getenv("USE_OLLAMA_VISION", "true").lower() == "true"  # 默認啟用作為備援
 
 # 用戶常用位置配置（用於計算交通時間）
 # 設置您的家庭地址或辦公室地址，系統會自動計算從這些位置到事件地點的交通時間

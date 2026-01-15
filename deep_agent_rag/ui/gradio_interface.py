@@ -17,6 +17,7 @@ from .email_interface import _create_email_interface
 from .calendar_interface import _create_calendar_interface
 from .private_file_rag_interface import _create_private_file_rag_interface
 from .simple_chatbot_interface import create_simple_chatbot_interface
+from .image_analysis_interface import _create_image_analysis_interface
 
 
 def run_research_agent(query: str, graph, thread_id: str = None) -> Iterator[Tuple[str, str, str, str, str]]:
@@ -212,7 +213,7 @@ def create_gradio_interface(graph):
             <div class="header">
             <h1>🚀 Deep Research Agent with RAG</h1>
             <p><strong>功能特色：</strong></p>
-            <p>💬 簡單聊天機器人 | 🔍 Deep Research Agent | 📧 智能郵件助手 | 📅 智能行事曆管理 | 📄 私有文件 RAG 問答</p>
+            <p>💬 簡單聊天機器人 | 🔍 Deep Research Agent | 📧 智能郵件助手 | 📅 智能行事曆管理 | 📄 私有文件 RAG 問答 | 🖼️ 智能圖片分析</p>
             <p><strong>智能規劃：</strong> 系統會根據問題類型自動選擇合適的研究工具</p>
             <p><strong>本地模型：</strong> 使用 MLX 本地模型，保護隱私，無需 API 金鑰</p>
             </div>
@@ -241,6 +242,10 @@ def create_gradio_interface(graph):
             # Tab 5: Private File RAG
             with gr.Tab("📚 Private File RAG"):
                 _create_private_file_rag_interface()
+            
+            # Tab 6: Image Analysis
+            with gr.Tab("🖼️ Image Analysis"):
+                _create_image_analysis_interface()
     
     return demo
 
