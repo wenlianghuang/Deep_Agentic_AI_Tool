@@ -15,7 +15,7 @@ data/*
 
 # Gmail API credentials (sensitive files)
 credentials*.json
-token.json
+token*.json
 
 *test_check*
 .DS_Store

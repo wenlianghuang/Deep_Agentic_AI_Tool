@@ -57,10 +57,10 @@ OLLAMA_TEMPERATURE = 0.7
 USE_OLLAMA = os.getenv("USE_OLLAMA", "false").lower() == "true"  # 是否啟用 Ollama
 
 # Email 配置 - 使用 Gmail API
-EMAIL_SENDER = "matthuang46@gmail.com"
+EMAIL_SENDER = "matthuang46@gmail.com"  # 預設發件人（向後兼容）
 # Gmail API 配置
-GMAIL_CREDENTIALS_FILE = os.getenv("GMAIL_CREDENTIALS_FILE", "credentials_matthuang.json")  # OAuth2 憑證文件
-GMAIL_TOKEN_FILE = os.getenv("GMAIL_TOKEN_FILE", "token.json")  # 儲存存取令牌的文件
+GMAIL_CREDENTIALS_FILE = os.getenv("GMAIL_CREDENTIALS_FILE", "credentials_matthuang.json")  # OAuth2 憑證文件（預設）
+GMAIL_TOKEN_FILE = os.getenv("GMAIL_TOKEN_FILE", "token.json")  # 儲存存取令牌的文件（預設）
 GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send']  # Gmail API 權限範圍
 
 # Calendar 配置 - 使用 Google Calendar API

@@ -285,33 +285,33 @@ def generate_email_draft(
         return "", "", error_msg, "", False
 
 
-def send_email_draft(recipient: str, subject: str, body: str) -> str:
+def send_email_draft(recipient: str, subject: str, body: str, sender: str = None) -> str:
     """
-    發送已編輯的郵件草稿（僅支援 Gmail 郵箱）
+    發送已編輯的郵件草稿（支援多個收件人，用逗號分隔）
     
     Args:
-        recipient: 收件人郵箱地址（必須是 Gmail 郵箱）
+        recipient: 收件人郵箱地址（可以是單個或多個用逗號分隔的郵箱，例如："user1@example.com, user2@example.com"）
         subject: 郵件主題
         body: 郵件正文內容
+        sender: 發件人郵箱地址（可選，必須是 Gmail），如果不提供則使用預設發件人
     
     Returns:
         發送結果消息
     """
     try:
-        # 驗證收件人是否為 Gmail 郵箱
-        recipient_lower = recipient.strip().lower()
-        if not (recipient_lower.endswith("@gmail.com") or recipient_lower.endswith("@googlemail.com")):
-            return (
-                f"❌ 錯誤：此工具僅支援 Gmail 郵箱。\n"
-                f"您輸入的郵箱：{recipient}\n"
-                f"請使用 @gmail.com 或 @googlemail.com 結尾的郵箱地址。"
-            )
+        # 基本郵箱格式驗證（詳細驗證由 send_email 工具處理）
+        if not recipient or not recipient.strip():
+            return "❌ 錯誤：請輸入收件人郵箱地址"
         
-        # 發送郵件
+        if '@' not in recipient:
+            return "❌ 錯誤：收件人郵箱格式無效，請輸入有效的郵箱地址"
+        
+        # 發送郵件（傳遞發件人參數，詳細驗證由 send_email 工具處理）
         result = send_email.invoke({
             "recipient": recipient,
             "subject": subject,
-            "body": body
+            "body": body,
+            "sender": sender
         })
         
         return f"📧 {result}\n\n郵件主題：{subject}\n\n郵件已成功發送！"
@@ -324,13 +324,14 @@ def send_email_draft(recipient: str, subject: str, body: str) -> str:
         return error_msg
 
 
-def generate_and_send_email(prompt: str, recipient: str) -> str:
+def generate_and_send_email(prompt: str, recipient: str, sender: str = None) -> str:
     """
     根據用戶提示生成郵件內容並發送
     
     Args:
         prompt: 用戶的關鍵提示（例如："寫一封感謝信"）
         recipient: 收件人郵箱地址
+        sender: 發件人郵箱地址（可選），如果不提供則使用預設發件人
     
     Returns:
         執行結果消息
@@ -426,11 +427,12 @@ def generate_and_send_email(prompt: str, recipient: str) -> str:
         if not email_subject:
             email_subject = default_subject
         
-        # 發送郵件
+        # 發送郵件（傳遞發件人參數）
         result = send_email.invoke({
             "recipient": recipient,
             "subject": email_subject,
-            "body": email_body
+            "body": email_body,
+            "sender": sender
         })
         
         return f"📧 郵件生成和發送結果：\n\n{result}\n\n郵件主題：{email_subject}\n\n郵件內容預覽：\n{email_body[:200]}..."
