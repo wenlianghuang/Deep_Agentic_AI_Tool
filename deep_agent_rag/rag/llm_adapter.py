@@ -1,6 +1,6 @@
 """
-LLM 适配器：将 LangChain ChatModel 包装成 OllamaLLM 接口
-用于兼容 Learn_RAG 项目中的进阶 RAG 方法
+LLM 適配器：將 LangChain ChatModel 包裝成 OllamaLLM 接口
+用於兼容 Learn_RAG 項目中的進階 RAG 方法
 """
 from typing import Optional
 from langchain_core.messages import HumanMessage
@@ -12,20 +12,18 @@ logger = logging.getLogger(__name__)
 
 class LangChainLLMAdapter:
     """
-    将 LangChain ChatModel 适配为 OllamaLLM 接口
-    
-    这个适配器允许 Learn_RAG 项目中的进阶 RAG 方法（需要 OllamaLLM）
-    使用 Deep_Agentic_AI_Tool 的统一 LLM 系统（Groq -> Ollama -> MLX）
-    """
-    
+    將 LangChain ChatModel 適配為 OllamaLLM 接口
+        
+    這個適配器允許 Learn_RAG 項目中的進階 RAG 方法（需要 OllamaLLM）
+    使用 Deep_Agentic_AI_Tool 的統一 LLM 系統（Groq -> Ollama -> MLX）
+    """    
     def __init__(self, langchain_llm: BaseChatModel):
         """
-        初始化适配器
-        
+        初始化適配器
+                
         Args:
-            langchain_llm: LangChain ChatModel 实例（来自 get_llm()）
-        """
-        self.llm = langchain_llm
+            langchain_llm: LangChain ChatModel 實例（來自 get_llm()）
+        """        self.llm = langchain_llm
         self.model_name = self._detect_model_name()
         self.base_url = "http://localhost:11434"  # 默认值，实际不使用
         self.timeout = 120  # 默认值，实际不使用
@@ -34,12 +32,11 @@ class LangChainLLMAdapter:
     
     def _detect_model_name(self) -> str:
         """
-        检测 LLM 类型和模型名称
-        
+        檢測 LLM 類型和模型名稱
+                
         Returns:
-            模型名称字符串
-        """
-        llm_type = type(self.llm).__name__
+            模型名稱字符串
+        """        llm_type = type(self.llm).__name__
         
         # 检测 Groq
         if "Groq" in llm_type or "ChatGroq" in llm_type:
@@ -60,21 +57,19 @@ class LangChainLLMAdapter:
     
     def _check_ollama_connection(self) -> bool:
         """
-        检查 Ollama 服务是否可用（兼容性方法，实际不使用）
-        
+        檢查 Ollama 服務是否可用（兼容性方法，實際不使用）
+                
         Returns:
-            总是返回 True（因为我们使用的是统一的 LLM 系统）
-        """
-        return True
+            總是返回 True（因為我們使用的是統一的 LLM 系統）
+        """        return True
     
     def _check_model_available(self) -> bool:
         """
-        检查模型是否可用（兼容性方法，实际不使用）
-        
+        檢查模型是否可用（兼容性方法，實際不使用）
+                
         Returns:
-            总是返回 True（因为我们使用的是统一的 LLM 系统）
-        """
-        return True
+            總是返回 True（因為我們使用的是統一的 LLM 系統）
+        """        return True
     
     def generate(
         self,
@@ -85,17 +80,16 @@ class LangChainLLMAdapter:
     ) -> str:
         """
         生成回答（兼容 OllamaLLM.generate 接口）
-        
+                
         Args:
-            prompt: 输入 prompt
-            temperature: 温度参数（0.0-1.0），控制随机性
-            max_tokens: 最大生成 token 数（None 表示使用模型预设）
-            stream: 是否使用流式输出（当前不支持，总是返回完整结果）
-        
+            prompt: 輸入 prompt
+            temperature: 溫度參數（0.0-1.0），控制隨機性
+            max_tokens: 最大生成 token 數（None 表示使用模型預設）
+            stream: 是否使用流式輸出（當前不支持，總是返回完整結果）
+                
         Returns:
             生成的回答字符串
-        """
-        try:
+        """        try:
             # 将 prompt 转换为 LangChain 消息格式
             messages = [HumanMessage(content=prompt)]
             
