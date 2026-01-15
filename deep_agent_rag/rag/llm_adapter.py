@@ -23,7 +23,8 @@ class LangChainLLMAdapter:
                 
         Args:
             langchain_llm: LangChain ChatModel 實例（來自 get_llm()）
-        """        self.llm = langchain_llm
+        """        
+        self.llm = langchain_llm
         self.model_name = self._detect_model_name()
         self.base_url = "http://localhost:11434"  # 默認值，實際不使用
         self.timeout = 120  # 默認值，實際不使用
@@ -36,7 +37,8 @@ class LangChainLLMAdapter:
                 
         Returns:
             模型名稱字符串
-        """        llm_type = type(self.llm).__name__
+        """        
+        llm_type = type(self.llm).__name__
         
         # 檢測 Groq
         if "Groq" in llm_type or "ChatGroq" in llm_type:
@@ -61,7 +63,8 @@ class LangChainLLMAdapter:
                 
         Returns:
             總是返回 True（因為我們使用的是統一的 LLM 系統）
-        """        return True
+        """        
+        return True
     
     def _check_model_available(self) -> bool:
         """
@@ -69,7 +72,8 @@ class LangChainLLMAdapter:
                 
         Returns:
             總是返回 True（因為我們使用的是統一的 LLM 系統）
-        """        return True
+        """        
+        return True
     
     def generate(
         self,
@@ -89,7 +93,8 @@ class LangChainLLMAdapter:
                 
         Returns:
             生成的回答字符串
-        """        try:
+        """        
+        try:
             # 將 prompt 轉換為 LangChain 消息格式
             messages = [HumanMessage(content=prompt)]
             
