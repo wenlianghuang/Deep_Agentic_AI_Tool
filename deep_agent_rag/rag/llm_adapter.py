@@ -28,7 +28,7 @@ class LangChainLLMAdapter:
         self.base_url = "http://localhost:11434"  # 默认值，实际不使用
         self.timeout = 120  # 默认值，实际不使用
         
-        logger.info(f"✅ LLM 适配器初始化完成 (模型类型: {self.model_name})")
+        logger.info(f"✅ LLM 適配器初始化完成 (模型類型: {self.model_name})")
     
     def _detect_model_name(self) -> str:
         """
@@ -38,17 +38,17 @@ class LangChainLLMAdapter:
             模型名稱字符串
         """        llm_type = type(self.llm).__name__
         
-        # 检测 Groq
+        # 檢測 Groq
         if "Groq" in llm_type or "ChatGroq" in llm_type:
             model_name = getattr(self.llm, 'model_name', 'groq-unknown')
             return f"groq:{model_name}"
         
-        # 检测 Ollama
+        # 檢測 Ollama
         if "Ollama" in llm_type or "ChatOllama" in llm_type:
             model_name = getattr(self.llm, 'model', 'ollama-unknown')
             return f"ollama:{model_name}"
         
-        # 检测 MLX
+        # 檢測 MLX
         if "MLX" in llm_type or "MLXChatModel" in llm_type:
             return "mlx:qwen2.5"
         
@@ -90,22 +90,22 @@ class LangChainLLMAdapter:
         Returns:
             生成的回答字符串
         """        try:
-            # 将 prompt 转换为 LangChain 消息格式
+            # 將 prompt 轉換為 LangChain 消息格式
             messages = [HumanMessage(content=prompt)]
             
-            # 准备调用参数
+            # 準備調用參數
             invoke_kwargs = {}
             
-            # 如果 LLM 支持 temperature 参数
+            # 如果 LLM 支持 temperature 參數
             if hasattr(self.llm, 'temperature'):
-                # 临时设置 temperature（如果支持）
+                # 臨時設置 temperature（如果支持）
                 original_temp = getattr(self.llm, 'temperature', None)
                 try:
                     self.llm.temperature = temperature
                 except:
                     pass  # 如果不支持设置，忽略
             
-            # 如果 LLM 支持 max_tokens 参数
+            # 如果 LLM 支持 max_tokens 參數
             if max_tokens and hasattr(self.llm, 'max_tokens'):
                 original_max_tokens = getattr(self.llm, 'max_tokens', None)
                 try:
@@ -113,10 +113,10 @@ class LangChainLLMAdapter:
                 except:
                     pass  # 如果不支持设置，忽略
             
-            # 调用 LangChain LLM
+            # 調用 LangChain LLM
             response = self.llm.invoke(messages, **invoke_kwargs)
             
-            # 恢复原始参数（如果之前修改过）
+            # 恢復原始參數（如果之前修改過）
             if hasattr(self.llm, 'temperature') and 'original_temp' in locals():
                 try:
                     self.llm.temperature = original_temp
@@ -129,7 +129,7 @@ class LangChainLLMAdapter:
                 except:
                     pass
             
-            # 提取回答内容
+            # 提取回答內容
             if hasattr(response, 'content'):
                 answer = response.content
             elif isinstance(response, str):
@@ -140,6 +140,6 @@ class LangChainLLMAdapter:
             return answer.strip()
             
         except Exception as e:
-            logger.error(f"⚠️ LLM 生成回答时出错: {e}")
-            raise RuntimeError(f"LLM 生成失败: {e}") from e
+            logger.error(f"⚠️ LLM 生成回答時出錯: {e}")
+            raise RuntimeError(f"LLM 生成失敗: {e}") from e
 
