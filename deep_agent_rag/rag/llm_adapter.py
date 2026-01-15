@@ -25,8 +25,8 @@ class LangChainLLMAdapter:
             langchain_llm: LangChain ChatModel 實例（來自 get_llm()）
         """        self.llm = langchain_llm
         self.model_name = self._detect_model_name()
-        self.base_url = "http://localhost:11434"  # 默认值，实际不使用
-        self.timeout = 120  # 默认值，实际不使用
+        self.base_url = "http://localhost:11434"  # 默認值，實際不使用
+        self.timeout = 120  # 默認值，實際不使用
         
         logger.info(f"✅ LLM 適配器初始化完成 (模型類型: {self.model_name})")
     
@@ -52,7 +52,7 @@ class LangChainLLMAdapter:
         if "MLX" in llm_type or "MLXChatModel" in llm_type:
             return "mlx:qwen2.5"
         
-        # 默认
+        # 默認
         return f"langchain:{llm_type}"
     
     def _check_ollama_connection(self) -> bool:
@@ -103,7 +103,7 @@ class LangChainLLMAdapter:
                 try:
                     self.llm.temperature = temperature
                 except:
-                    pass  # 如果不支持设置，忽略
+                    pass  # 如果不支持設置，忽略
             
             # 如果 LLM 支持 max_tokens 參數
             if max_tokens and hasattr(self.llm, 'max_tokens'):
@@ -111,7 +111,7 @@ class LangChainLLMAdapter:
                 try:
                     self.llm.max_tokens = max_tokens
                 except:
-                    pass  # 如果不支持设置，忽略
+                    pass  # 如果不支持設置，忽略
             
             # 調用 LangChain LLM
             response = self.llm.invoke(messages, **invoke_kwargs)
