@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# 設定 tokenizers 並行性環境變數（解決 fork 警告）
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 # 設定 HuggingFace 模型緩存目錄到外接 SSD
 EXTERNAL_SSD_PATH = "/Volumes/T7_SSD"
 HF_CACHE_DIR = os.path.join(EXTERNAL_SSD_PATH, "huggingface_cache")
@@ -40,7 +43,7 @@ MAX_ITERATIONS = 5
 MAX_RESEARCH_ITERATIONS = 20
 
 # Reflection 配置（通用反思迭代次數）
-MAX_REFLECTION_ITERATION = 0  # 反思的最大迭代次數
+MAX_REFLECTION_ITERATION = int(os.getenv("MAX_REFLECTION_ITERATION", "2"))  # 反思的最大迭代次數（默認2次，避免免費API額度快速用完）
 
 # Groq API 配置
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
@@ -70,6 +73,20 @@ CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar']  # Calendar API �
 
 # Google Maps API 配置
 NORMAL_GOOGLE_MAPS_API_KEY = os.getenv("NORMAL_GOOGLE_MAPS_API_KEY", "")
+
+# 多模態圖片分析 API 配置
+# 優先順序：OpenAI GPT-4 Vision > Google Gemini > Anthropic Claude > Ollama LLaVA
+
+
+# Google Gemini API 配置
+GOOGLE_GEMINI_API_KEY = os.getenv("GOOGLE_GEMINI_API_KEY", "")
+GOOGLE_GEMINI_MODEL = os.getenv("GOOGLE_GEMINI_MODEL", "gemini-flash-latest")  # gemini-flash-latest, gemini-1.5-flash, gemini-1.5-pro
+USE_GEMINI_FIRST = os.getenv("USE_GEMINI_FIRST", "true").lower() == "true"  # 默認優先使用 Gemini（免費額度較高）
+
+
+# Ollama LLaVA 配置（本地多模態模型，完全免費）
+OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava")  # llava, llava:13b, llava:34b
+USE_OLLAMA_VISION = os.getenv("USE_OLLAMA_VISION", "true").lower() == "true"  # 默認啟用作為備援
 
 # 用戶常用位置配置（用於計算交通時間）
 # 設置您的家庭地址或辦公室地址，系統會自動計算從這些位置到事件地點的交通時間
