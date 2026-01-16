@@ -13,19 +13,9 @@ from PIL import Image
 import requests
 
 from ..config import (
-    # OpenAI
-    OPENAI_API_KEY,
-    OPENAI_VISION_MODEL,
-    USE_OPENAI_VISION_FIRST,
-    # Google Gemini
     GOOGLE_GEMINI_API_KEY,
     GOOGLE_GEMINI_MODEL,
-    USE_GEMINI_FIRST,
-    # Anthropic Claude
-    ANTHROPIC_API_KEY,
-    ANTHROPIC_VISION_MODEL,
-    USE_ANTHROPIC_VISION,
-    # Ollama
+    USE_GEMINI_FIRST, 
     OLLAMA_BASE_URL,
     OLLAMA_VISION_MODEL,
     USE_OLLAMA_VISION,
@@ -115,28 +105,6 @@ def prepare_image_message(image_path: str, prompt: str) -> HumanMessage:
         ]
     )
 
-
-def get_openai_vision_llm():
-    """獲取 OpenAI GPT-4 Vision LLM 實例"""
-    try:
-        from langchain_openai import ChatOpenAI
-        
-        if not OPENAI_API_KEY:
-            return None
-        
-        return ChatOpenAI(
-            model=OPENAI_VISION_MODEL,
-            api_key=OPENAI_API_KEY,
-            temperature=0.7,
-            max_tokens=2048,
-        )
-    except ImportError:
-        return None
-    except Exception as e:
-        print(f"⚠️ OpenAI Vision 初始化失敗: {e}")
-        return None
-
-
 def get_gemini_llm():
     """獲取 Google Gemini LLM 實例"""
     try:
@@ -158,25 +126,6 @@ def get_gemini_llm():
         return None
 
 
-def get_anthropic_vision_llm():
-    """獲取 Anthropic Claude Vision LLM 實例"""
-    try:
-        from langchain_anthropic import ChatAnthropic
-        
-        if not ANTHROPIC_API_KEY:
-            return None
-        
-        return ChatAnthropic(
-            model=ANTHROPIC_VISION_MODEL,
-            api_key=ANTHROPIC_API_KEY,
-            temperature=0.7,
-            max_tokens=2048,
-        )
-    except ImportError:
-        return None
-    except Exception as e:
-        print(f"⚠️ Anthropic Claude 初始化失敗: {e}")
-        return None
 
 
 def get_ollama_vision_llm():
@@ -225,12 +174,6 @@ def get_multimodal_llm() -> Tuple[Optional[object], str]:
     """
     # 優先順序：OpenAI > Gemini > Anthropic > Ollama
     
-    # 1. 嘗試 OpenAI GPT-4 Vision
-    if USE_OPENAI_VISION_FIRST:
-        llm = get_openai_vision_llm()
-        if llm:
-            print("✅ 使用 OpenAI GPT-4 Vision")
-            return llm, "openai"
     
     # 2. 嘗試 Google Gemini（默認優先，免費額度較高）
     if USE_GEMINI_FIRST:
@@ -239,12 +182,6 @@ def get_multimodal_llm() -> Tuple[Optional[object], str]:
             print("✅ 使用 Google Gemini")
             return llm, "gemini"
     
-    # 3. 嘗試 Anthropic Claude
-    if USE_ANTHROPIC_VISION:
-        llm = get_anthropic_vision_llm()
-        if llm:
-            print("✅ 使用 Anthropic Claude")
-            return llm, "anthropic"
     
     # 4. 嘗試 Ollama LLaVA（本地，完全免費）
     if USE_OLLAMA_VISION:
@@ -253,21 +190,13 @@ def get_multimodal_llm() -> Tuple[Optional[object], str]:
             print("✅ 使用 Ollama LLaVA (本地)")
             return llm, "ollama"
     
-    # 5. 如果都不行，按順序嘗試所有可用的
-    llm = get_openai_vision_llm()
-    if llm:
-        print("✅ 使用 OpenAI GPT-4 Vision (備援)")
-        return llm, "openai"
     
     llm = get_gemini_llm()
     if llm:
         print("✅ 使用 Google Gemini (備援)")
         return llm, "gemini"
     
-    llm = get_anthropic_vision_llm()
-    if llm:
-        print("✅ 使用 Anthropic Claude (備援)")
-        return llm, "anthropic"
+    
     
     llm = get_ollama_vision_llm()
     if llm:

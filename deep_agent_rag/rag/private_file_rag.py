@@ -29,8 +29,8 @@ from .adaptive_rag_selector import AdaptiveRAGSelector, RAGMethod
 current_file = Path(__file__).resolve()
 # 從 deep_agent_rag/rag/private_file_rag.py 向上找到 Deep_Agentic_AI_Tool 根目錄
 # private_file_rag.py -> rag/ -> deep_agent_rag/ -> Deep_Agentic_AI_Tool/
-deep_agent_root = current_file.parent.parent.parent.parent
-
+#deep_agent_root = current_file.parent.parent.parent.parent
+deep_agent_root = current_file.parent.parent.parent
 # 檢查 src 目錄是否存在（應該在項目根目錄下）
 src_path = deep_agent_root / "src"
 if src_path.exists() and src_path.is_dir():

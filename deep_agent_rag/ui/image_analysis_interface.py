@@ -10,11 +10,8 @@ from typing import Tuple, Optional
 from ..tools.image_analysis_tool import get_multimodal_llm
 from ..graph.image_analysis_graph import build_image_analysis_graph
 from ..config import (
-    OPENAI_API_KEY,
     GOOGLE_GEMINI_API_KEY,
-    ANTHROPIC_API_KEY,
     USE_OLLAMA_VISION,
-    OLLAMA_VISION_MODEL,
     MAX_REFLECTION_ITERATION,
 )
 
@@ -28,20 +25,12 @@ def get_available_providers() -> str:
     """
     providers = []
     
-    if OPENAI_API_KEY:
-        providers.append("✅ OpenAI GPT-4 Vision")
-    else:
-        providers.append("❌ OpenAI GPT-4 Vision (未配置)")
+    
     
     if GOOGLE_GEMINI_API_KEY:
         providers.append("✅ Google Gemini")
     else:
         providers.append("❌ Google Gemini (未配置)")
-    
-    if ANTHROPIC_API_KEY:
-        providers.append("✅ Anthropic Claude")
-    else:
-        providers.append("❌ Anthropic Claude (未配置)")
     
     if USE_OLLAMA_VISION:
         providers.append("✅ Ollama LLaVA (本地)")
