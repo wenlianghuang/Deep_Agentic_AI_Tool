@@ -6,6 +6,7 @@ from .retrievers.reranker import RAGPipeline
 from .retrievers.vector_retriever import VectorRetriever
 from .prompt_formatter import PromptFormatter
 from .llm_integration import OllamaLLM
+from .rag_utils import generate_hypothetical_document
 import time
 import logging
 
@@ -49,47 +50,13 @@ class HyDERAG:
         Returns:
             假設性文檔文本
         """
-        # 檢測語言
-        is_chinese = PromptFormatter.detect_language(question) == "zh"
-        
-        if is_chinese:
-            prompt = f"""請針對以下問題，寫出一段約 {self.hypothetical_length} 字的專業技術檔案內容。
-這段內容應包含該領域常見的專業術語與原理說明，以便用於後續的語義檢索。
-請使用專業的術語和概念，即使你對某些細節不確定，也要包含相關的專業詞彙。
-
-問題: {question}
-
-專業技術內容："""
-        else:
-            prompt = f"""Please write a professional technical document of approximately {self.hypothetical_length} words in response to the following question.
-This content should include common professional terminology and principle explanations in this field, to be used for subsequent semantic retrieval.
-Please use professional terms and concepts, and include relevant professional vocabulary even if you are uncertain about some details.
-
-Question: {question}
-
-Professional technical content:"""
-        
-        try:
-            hypothetical_doc = self.llm.generate(
-                prompt=prompt,
-                temperature=self.temperature,  # 較高的溫度以獲得更多專業術語
-                max_tokens=500
-            )
-            
-            # 清理輸出
-            hypothetical_doc = hypothetical_doc.strip()
-            
-            if not hypothetical_doc:
-                logger.warning("⚠️  生成的假設性文檔為空，使用原始問題")
-                return question
-            
-            logger.info(f"✅ 生成假設性文檔（長度: {len(hypothetical_doc)} 字符）")
-            return hypothetical_doc
-            
-        except Exception as e:
-            logger.error(f"⚠️  生成假設性文檔時出錯: {e}")
-            # 回退到使用原始問題
-            return question
+        return generate_hypothetical_document(
+            llm=self.llm,
+            question=question,
+            hypothetical_length=self.hypothetical_length,
+            temperature=self.temperature,
+            enable_logging=True
+        )
     
     def query(
         self,

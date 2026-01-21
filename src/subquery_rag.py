@@ -5,7 +5,7 @@ from typing import List, Dict, Optional
 from .retrievers.reranker import RAGPipeline
 from .prompt_formatter import PromptFormatter
 from .llm_integration import OllamaLLM
-import hashlib
+from .rag_utils import get_doc_id, generate_sub_queries
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -50,84 +50,12 @@ class SubQueryDecompositionRAG:
         Returns:
             子問題列表
         """
-        # 檢測語言
-        is_chinese = PromptFormatter.detect_language(question) == "zh"
-        
-        if is_chinese:
-            prompt = f"""你是一個專業助理。請將以下原始問題拆解成最多 {self.max_sub_queries} 個具體的子問題，以便進行資料搜尋。
-每個子問題應專注於原始問題的一個特定面向。請以換行符號分隔問題。
-
-原始問題: {question}
-
-子問題清單:"""
-        else:
-            prompt = f"""You are a professional assistant. Please decompose the following original question into at most {self.max_sub_queries} specific sub-questions for information retrieval.
-Each sub-question should focus on a specific aspect of the original question. Please separate questions with newlines.
-
-Original question: {question}
-
-Sub-question list:"""
-        
-        try:
-            response = self.llm.generate(
-                prompt=prompt,
-                temperature=0.3,  # 降低溫度以獲得更穩定的結果
-                max_tokens=500
-            )
-            
-            # 解析子問題
-            sub_queries = [
-                q.strip() 
-                for q in response.strip().split("\n") 
-                if q.strip() and not q.strip().startswith("#")
-            ]
-            
-            # 移除編號前綴（如 "1. ", "1) " 等）
-            cleaned_queries = []
-            for q in sub_queries:
-                # 移除開頭的編號
-                q = q.lstrip("0123456789. )")
-                q = q.strip()
-                if q:
-                    cleaned_queries.append(q)
-            
-            # 限制數量
-            cleaned_queries = cleaned_queries[:self.max_sub_queries]
-            
-            # 如果沒有生成子問題，使用原始問題
-            if not cleaned_queries:
-                logger.warning("⚠️  未生成子問題，使用原始問題")
-                cleaned_queries = [question]
-            
-            return cleaned_queries
-            
-        except Exception as e:
-            logger.error(f"⚠️  生成子問題時出錯: {e}")
-            # 回退到原始問題
-            return [question]
-    
-    def _get_doc_id(self, doc: Dict) -> str:
-        """
-        生成文檔的唯一標識符
-        
-        Args:
-            doc: 文檔字典
-            
-        Returns:
-            唯一 ID
-        """
-        metadata = doc.get("metadata", {})
-        content = doc.get("content", "")
-        
-        # 使用 metadata 中的唯一標識（如果有的話）
-        if "arxiv_id" in metadata and "chunk_index" in metadata:
-            return f"{metadata['arxiv_id']}_{metadata['chunk_index']}"
-        elif "file_path" in metadata and "chunk_index" in metadata:
-            return f"{metadata['file_path']}_{metadata['chunk_index']}"
-        else:
-            # 回退到內容的 hash
-            content_hash = hashlib.md5(content.encode()).hexdigest()[:16]
-            return f"doc_{content_hash}"
+        return generate_sub_queries(
+            llm=self.llm,
+            question=question,
+            max_sub_queries=self.max_sub_queries,
+            temperature=0.3
+        )
     
     def _retrieve_for_subquery(
         self, 
@@ -188,7 +116,7 @@ Sub-question list:"""
                         docs = future.result()
                         logger.debug(f"✅ 子問題 '{sub_query}' 找到 {len(docs)} 個結果")
                         for doc in docs:
-                            doc_id = self._get_doc_id(doc)
+                            doc_id = get_doc_id(doc)
                             if doc_id not in unique_docs:
                                 unique_docs[doc_id] = doc
                             else:
@@ -212,7 +140,7 @@ Sub-question list:"""
                 docs = self._retrieve_for_subquery(sub_query, metadata_filter)
                 logger.debug(f"✅ 子問題 '{sub_query}' 找到 {len(docs)} 個結果")
                 for doc in docs:
-                    doc_id = self._get_doc_id(doc)
+                    doc_id = get_doc_id(doc)
                     if doc_id not in unique_docs:
                         unique_docs[doc_id] = doc
                     else:

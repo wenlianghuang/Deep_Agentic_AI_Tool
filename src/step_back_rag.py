@@ -7,9 +7,9 @@ from .retrievers.reranker import RAGPipeline
 from .retrievers.vector_retriever import VectorRetriever
 from .prompt_formatter import PromptFormatter
 from .llm_integration import OllamaLLM
+from .rag_utils import get_doc_id, generate_step_back_question
 import time
 import logging
-import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
@@ -55,65 +55,12 @@ class StepBackRAG:
         Returns:
             抽象問題
         """
-        is_chinese = PromptFormatter.detect_language(question) == "zh"
-        
-        if is_chinese:
-            prompt = f"""你是一個資深專家。請將以下具體問題轉換為一個更抽象、更基礎的原理性問題。
-這個抽象問題應該幫助理解該領域的基礎概念和原理，而不是直接回答具體問題。
-
-具體問題: {question}
-
-請生成一個抽象問題，用於檢索相關的原理和背景知識：
-"""
-        else:
-            prompt = f"""You are a senior expert. Please convert the following specific question into a more abstract, fundamental question about principles and concepts.
-This abstract question should help understand the basic concepts and principles in this field, rather than directly answering the specific question.
-
-Specific question: {question}
-
-Please generate an abstract question for retrieving relevant principles and background knowledge:
-"""
-        
-        try:
-            abstract_question = self.llm.generate(
-                prompt=prompt,
-                temperature=self.step_back_temperature,
-                max_tokens=200
-            )
-            
-            abstract_question = abstract_question.strip()
-            
-            if not abstract_question:
-                logger.warning("⚠️  生成的抽象問題為空，使用原始問題")
-                return question
-            
-            logger.info(f"✅ 生成抽象問題: '{abstract_question}'")
-            return abstract_question
-            
-        except Exception as e:
-            logger.error(f"⚠️  生成抽象問題時出錯: {e}")
-            return question
-    
-    def _get_doc_id(self, doc: Dict) -> str:
-        """
-        生成文檔的唯一標識符
-        
-        Args:
-            doc: 文檔字典
-            
-        Returns:
-            唯一 ID
-        """
-        metadata = doc.get("metadata", {})
-        content = doc.get("content", "")
-        
-        if "arxiv_id" in metadata and "chunk_index" in metadata:
-            return f"{metadata['arxiv_id']}_{metadata['chunk_index']}"
-        elif "file_path" in metadata and "chunk_index" in metadata:
-            return f"{metadata['file_path']}_{metadata['chunk_index']}"
-        else:
-            content_hash = hashlib.md5(content.encode()).hexdigest()[:16]
-            return f"doc_{content_hash}"
+        return generate_step_back_question(
+            llm=self.llm,
+            question=question,
+            temperature=self.step_back_temperature,
+            enable_logging=True
+        )
     
     def _retrieve_direct(self, question: str, top_k: int, metadata_filter: Optional[Dict] = None) -> List[Dict]:
         """直接檢索原始問題（具體事實）"""
