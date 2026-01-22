@@ -9,82 +9,78 @@ from typing import List, Dict, Any
 import time
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.runnables import RunnableLambda
-import jieba
-
 from ..utils.llm_utils import get_llm_type, is_using_local_llm, get_llm
 from ..guardrails.nemo_manager import get_guardrail_manager
+from ..tools.agent_tools import search_web
 
 
-# ==================== Guardrails 配置 ====================
-# 敏感關鍵字名單
-BLOCKED_KEYWORDS = [
-    "伊斯蘭教",
-    "阿拉",
-    "回教徒",
-    "默罕默德",
-    "Islam",
-    "Allah",
-    "Muslim",
-    "Muhammad"
-]
+"""
+注意：本檔案曾經內建一套「即時輸出」的關鍵字密度快篩，
+但它容易與 `deep_agent_rag/guardrails` 的設定不同步。
 
-# 攔截門檻：5% 的詞彙密度
-KEYWORD_DENSITY_THRESHOLD = 0.05
-
-# 預設攔截訊息
-DEFAULT_BLOCKED_MESSAGE = "抱歉，您的問題包含敏感內容，無法回答。請換個話題或重新表述您的問題。"
-
-# 初始化 jieba 自定義詞典（確保準確識別敏感詞）
-def _init_jieba_custom_dict():
-    """初始化 jieba 自定義詞典，添加敏感關鍵字以提高識別準確度"""
-    for keyword in BLOCKED_KEYWORDS:
-        jieba.add_word(keyword, freq=10000, tag='sensitive')
-
-# 在模組載入時初始化
-_init_jieba_custom_dict()
+現在統一以 `HybridGuardrailManager` 的 keyword_filter 當作快篩來源，
+確保「輸入攔截」、「即時輸出快篩」、「最終輸出語義過濾」都一致。
+"""
 
 
-def check_content_guardrails(text: str) -> tuple[bool, float]:
+def needs_fresh_info(message: str) -> bool:
     """
-    檢查文本是否包含敏感內容
-    
-    使用 jieba 進行斷詞，計算敏感詞彙密度
-    支持中文和英文（不區分大小寫）
+    判斷問題是否需要即時資訊（時效性問題）。
+    使用關鍵字規則快速判斷，避免不必要的網路搜尋。
     
     Args:
-        text: 要檢查的文本
+        message: 用戶輸入的問題
     
     Returns:
-        tuple[bool, float]: (是否應該攔截, 關鍵字密度)
+        bool: 是否需要查詢即時資訊
+    """
+    if not message or not message.strip():
+        return False
+    
+    message_lower = message.lower()
+    
+    # 時效性關鍵字列表
+    time_sensitive_keywords = [
+        # 時間相關
+        "現在", "目前", "最新", "今天", "昨天", "本週", "本週", "今年", 
+        "剛剛", "近期", "最近", "現任", "當前", "即時", "實時",
+        # 日期相關（2024-2026）
+        "2024", "2025", "2026",
+        # 職位/狀態相關
+        "誰是現任", "現任的", "現在的", "目前的", "當前的",
+        "現任總統", "現任市長", "現任總理", "現任主席",
+        # 金融/市場相關
+        "股價", "匯率", "市值", "現價", "當前價格", "最新價格",
+        # 新聞/事件相關
+        "最新消息", "最新新聞", "最新動態", "最新發展", "最新版本",
+        # 天氣/自然現象
+        "天氣", "地震", "颱風", "溫度",
+        # 其他時效性問題
+        "現在幾點", "現在時間", "今天是", "今年是"
+    ]
+    
+    # 檢查是否包含時效性關鍵字
+    for keyword in time_sensitive_keywords:
+        if keyword in message_lower:
+            return True
+    
+    return False
+
+
+def check_content_guardrails(text: str) -> tuple[bool, float, str]:
+    """
+    快速檢查文本是否應被 Guardrails 攔截（關鍵字層）。
+
+    Returns:
+        (should_block, density, message)
     """
     if not text or not text.strip():
-        return False, 0.0
-    
-    # 使用 jieba 進行斷詞
-    words = list(jieba.cut(text))
-    total_words = len(words)
-    
-    if total_words == 0:
-        return False, 0.0
-    
-    # 建立小寫敏感詞集合以便快速比對
-    blocked_keywords_lower = {k.lower() for k in BLOCKED_KEYWORDS}
-    
-    # 計算敏感詞數量
-    sensitive_word_count = 0
-    for word in words:
-        # 移除空白並轉為小寫進行比對
-        clean_word = word.strip().lower()
-        if clean_word and clean_word in blocked_keywords_lower:
-            sensitive_word_count += 1
-    
-    # 計算關鍵字密度
-    keyword_density = sensitive_word_count / total_words
-    
-    # 判斷是否超過門檻
-    should_block = keyword_density >= KEYWORD_DENSITY_THRESHOLD
-    
-    return should_block, keyword_density
+        return False, 0.0, ""
+
+    mgr = get_guardrail_manager()
+    # 直接復用 guardrails 的 keyword filter（含可選的 block_on_match）
+    should_block, density, message = mgr._check_keyword_density(text)  # noqa: SLF001 (intentional internal reuse)
+    return should_block, density, message
 
 
 def guardrail_filter(response: str) -> str:
@@ -97,13 +93,13 @@ def guardrail_filter(response: str) -> str:
     Returns:
         str: 過濾後的文本（如果超過門檻則返回預設訊息）
     """
-    should_block, density = check_content_guardrails(response)
+    should_block, density, message = check_content_guardrails(response)
     
     if should_block:
-        print(f"🚫 Guardrails 攔截：關鍵字密度 {density:.2%} 超過門檻 {KEYWORD_DENSITY_THRESHOLD:.2%}")
-        return DEFAULT_BLOCKED_MESSAGE
+        print(f"🚫 Guardrails 攔截：關鍵字層命中 (density={density:.2%})")
+        return message or "抱歉，您的問題包含敏感內容，無法回答。請換個話題或重新表述您的問題。"
     else:
-        print(f"🟢 Guardrails 通過：關鍵字密度 {density:.2%} 低於門檻 {KEYWORD_DENSITY_THRESHOLD:.2%}")
+        print(f"🟢 Guardrails 通過：關鍵字層未命中 (density={density:.2%})")
         
     return response
 
@@ -163,11 +159,38 @@ def chat_with_llm_streaming(
                 yield new_history
                 return
         
+        # ==================== 時效性問題：網路搜尋 ====================
+        # 判斷是否需要即時資訊，如果需要則先進行網路搜尋
+        web_search_results = None
+        if needs_fresh_info(message):
+            try:
+                print(f"🔍 偵測到時效性問題，正在進行網路搜尋...")
+                # `search_web` is a LangChain tool (StructuredTool); call via `.invoke()`
+                web_search_results = search_web.invoke({"query": message})
+                web_search_results = str(web_search_results) if web_search_results is not None else ""
+                if web_search_results and "搜尋錯誤" not in web_search_results:
+                    print(f"✅ 網路搜尋完成，已獲取即時資訊")
+                else:
+                    print(f"⚠️ 網路搜尋失敗或未配置 Tavily API，將使用一般回答")
+                    web_search_results = None
+            except Exception as e:
+                print(f"⚠️ 網路搜尋發生錯誤: {e}，將使用一般回答")
+                web_search_results = None
+        
         # 獲取 LLM
         llm = get_llm()
         
         # 構建消息列表
         messages = [SystemMessage(content=system_prompt)]
+        
+        # 如果有網路搜尋結果，將其作為 SystemMessage 插入（隱藏在 system context）
+        if web_search_results:
+            search_context = f"""以下是針對用戶問題的即時網路搜尋結果，請使用這些最新資訊來回答問題：
+
+{web_search_results}
+
+請基於以上即時資訊回答用戶的問題。如果搜尋結果與問題不完全相關，請優先使用搜尋結果中的資訊，並在回答中自然地融入這些資訊。"""
+            messages.append(SystemMessage(content=search_context))
         
         # 添加對話歷史
         for msg in history:
@@ -199,21 +222,24 @@ def chat_with_llm_streaming(
             # ==================== 輸出過濾即時檢查 (快速層) ====================
             if enable_guardrails:
                 # 進行快速的關鍵字密度檢查，避免等到生成完才發現
-                should_block_fast, _ = check_content_guardrails(full_response)
+                should_block_fast, _, blocked_message_fast = check_content_guardrails(full_response)
                 if should_block_fast:
                     print(f"🚫 輸出因關鍵字密度被即時阻擋")
+                    # 使用返回的阻擋訊息，如果為空則使用 fallback
+                    message_to_show = blocked_message_fast or "抱歉，您的問題包含敏感內容，無法回答。請換個話題或重新表述您的問題。"
+                    
                     # 清空當前內容，準備逐字顯示阻擋訊息
                     new_history[-1] = {"role": "assistant", "content": ""}
                     yield new_history
                     
                     # 逐字顯示阻擋訊息
-                    for i in range(len(DEFAULT_BLOCKED_MESSAGE)):
-                        new_history[-1] = {"role": "assistant", "content": DEFAULT_BLOCKED_MESSAGE[:i+1]}
+                    for i in range(len(message_to_show)):
+                        new_history[-1] = {"role": "assistant", "content": message_to_show[:i+1]}
                         yield new_history
                         time.sleep(0.01)
                     
                     # 確保完整顯示
-                    new_history[-1] = {"role": "assistant", "content": DEFAULT_BLOCKED_MESSAGE}
+                    new_history[-1] = {"role": "assistant", "content": message_to_show}
                     yield new_history
                     return
         
@@ -465,7 +491,7 @@ def create_simple_chatbot_interface():
             return get_guardrails_status()
         
         # 發送消息事件
-        msg.submit(
+        msg.submit(        
             fn=chat_with_llm_streaming,
             inputs=[msg, chatbot, system_prompt, enable_guardrails_checkbox],
             outputs=[chatbot],
