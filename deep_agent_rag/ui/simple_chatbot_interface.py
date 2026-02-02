@@ -458,6 +458,9 @@ def create_simple_chatbot_interface():
             show_label=False
         )
         
+        # 隱藏的 State 組件，用於保存消息內容以便在清除輸入框後傳遞
+        message_state = gr.State()
+        
         # 控制按鈕
         with gr.Row():
             submit_btn = gr.Button("📤 發送", variant="primary")
@@ -490,27 +493,41 @@ def create_simple_chatbot_interface():
             """更新 Guardrails 狀態"""
             return get_guardrails_status()
         
-        # 發送消息事件
-        msg.submit(        
-            fn=chat_with_llm_streaming,
+        def send_message_and_clear(message, history, system_prompt, enable_guardrails):
+            """發送消息並立即清除輸入框"""
+            # 立即清除輸入框（返回空字符串）
+            # 同時保存消息內容到 State，供流式函數使用
+            return "", message, history, system_prompt, enable_guardrails
+        
+        def process_streaming(message_text, history, system_prompt, enable_guardrails):
+            """處理流式響應"""
+            # 調用流式函數
+            for updated_history in chat_with_llm_streaming(message_text, history, system_prompt, enable_guardrails):
+                yield updated_history
+        
+        # 發送消息事件 - 先清除輸入框，再處理流式響應
+        msg.submit(
+            fn=send_message_and_clear,
             inputs=[msg, chatbot, system_prompt, enable_guardrails_checkbox],
+            outputs=[msg, message_state, chatbot, system_prompt, enable_guardrails_checkbox],
+            queue=False
+        ).then(
+            fn=process_streaming,
+            inputs=[message_state, chatbot, system_prompt, enable_guardrails_checkbox],
             outputs=[chatbot],
             queue=True
-        ).then(
-            fn=lambda: "",
-            outputs=[msg],
-            queue=False
         )
         
         submit_btn.click(
-            fn=chat_with_llm_streaming,
+            fn=send_message_and_clear,
             inputs=[msg, chatbot, system_prompt, enable_guardrails_checkbox],
+            outputs=[msg, message_state, chatbot, system_prompt, enable_guardrails_checkbox],
+            queue=False
+        ).then(
+            fn=process_streaming,
+            inputs=[message_state, chatbot, system_prompt, enable_guardrails_checkbox],
             outputs=[chatbot],
             queue=True
-        ).then(
-            fn=lambda: "",
-            outputs=[msg],
-            queue=False
         )
         
         clear_btn.click(
