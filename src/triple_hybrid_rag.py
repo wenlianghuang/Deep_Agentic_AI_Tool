@@ -7,7 +7,7 @@ from .retrievers.reranker import RAGPipeline
 from .retrievers.vector_retriever import VectorRetriever
 from .prompt_formatter import PromptFormatter
 from .llm_integration import OllamaLLM
-import hashlib
+from .rag_utils import get_doc_id, generate_sub_queries, generate_hypothetical_document, generate_step_back_question
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -62,148 +62,31 @@ class TripleHybridRAG:
     
     def _generate_sub_queries(self, question: str) -> List[str]:
         """生成子問題（SubQuery）"""
-        is_chinese = PromptFormatter.detect_language(question) == "zh"
-        
-        if is_chinese:
-            prompt = f"""你是一個專業助理。請將以下原始問題拆解成最多 {self.max_sub_queries} 個具體的子問題，以便進行資料搜尋。
-每個子問題應專注於原始問題的一個特定面向。請以換行符號分隔問題。
-
-原始問題: {question}
-
-子問題清單:"""
-        else:
-            prompt = f"""You are a professional assistant. Please decompose the following original question into at most {self.max_sub_queries} specific sub-questions for information retrieval.
-Each sub-question should focus on a specific aspect of the original question. Please separate questions with newlines.
-
-Original question: {question}
-
-Sub-question list:"""
-        
-        try:
-            response = self.llm.generate(
-                prompt=prompt,
-                temperature=self.temperature_subquery,
-                max_tokens=500
-            )
-            
-            sub_queries = [
-                q.strip() 
-                for q in response.strip().split("\n") 
-                if q.strip() and not q.strip().startswith("#")
-            ]
-            
-            # 移除編號前綴
-            cleaned_queries = []
-            for q in sub_queries:
-                q = q.lstrip("0123456789. )")
-                q = q.strip()
-                if q:
-                    cleaned_queries.append(q)
-            
-            cleaned_queries = cleaned_queries[:self.max_sub_queries]
-            
-            if not cleaned_queries:
-                logger.warning("⚠️  未生成子問題，使用原始問題")
-                cleaned_queries = [question]
-            
-            return cleaned_queries
-            
-        except Exception as e:
-            logger.error(f"⚠️  生成子問題時出錯: {e}")
-            return [question]
+        return generate_sub_queries(
+            llm=self.llm,
+            question=question,
+            max_sub_queries=self.max_sub_queries,
+            temperature=self.temperature_subquery
+        )
     
     def _generate_hypothetical_document(self, sub_query: str) -> str:
         """為子問題生成假設性文檔（HyDE）"""
-        is_chinese = PromptFormatter.detect_language(sub_query) == "zh"
-        
-        if is_chinese:
-            prompt = f"""請針對以下問題，寫出一段約 {self.hypothetical_length} 字的專業技術檔案內容。
-這段內容應包含該領域常見的專業術語與原理說明，以便用於後續的語義檢索。
-請使用專業的術語和概念，即使你對某些細節不確定，也要包含相關的專業詞彙。
-
-問題: {sub_query}
-
-專業技術內容："""
-        else:
-            prompt = f"""Please write a professional technical document of approximately {self.hypothetical_length} words in response to the following question.
-This content should include common professional terminology and principle explanations in this field, to be used for subsequent semantic retrieval.
-Please use professional terms and concepts, and include relevant professional vocabulary even if you are uncertain about some details.
-
-Question: {sub_query}
-
-Professional technical content:"""
-        
-        try:
-            hypothetical_doc = self.llm.generate(
-                prompt=prompt,
-                temperature=self.temperature_hyde,
-                max_tokens=500
-            )
-            
-            hypothetical_doc = hypothetical_doc.strip()
-            
-            if not hypothetical_doc:
-                logger.warning(f"⚠️  子問題 '{sub_query}' 的假設性文檔為空，使用子問題本身")
-                return sub_query
-            
-            return hypothetical_doc
-            
-        except Exception as e:
-            logger.error(f"⚠️  生成假設性文檔時出錯: {e}")
-            return sub_query
+        return generate_hypothetical_document(
+            llm=self.llm,
+            question=sub_query,
+            hypothetical_length=self.hypothetical_length,
+            temperature=self.temperature_hyde,
+            enable_logging=False
+        )
     
     def _generate_step_back_question(self, question: str) -> str:
         """生成 Step-back 抽象問題"""
-        is_chinese = PromptFormatter.detect_language(question) == "zh"
-        
-        if is_chinese:
-            prompt = f"""你是一個資深專家。請將以下具體問題轉換為一個更抽象、更基礎的原理性問題。
-這個抽象問題應該幫助理解該領域的基礎概念和原理，而不是直接回答具體問題。
-
-具體問題: {question}
-
-請生成一個抽象問題，用於檢索相關的原理和背景知識：
-"""
-        else:
-            prompt = f"""You are a senior expert. Please convert the following specific question into a more abstract, fundamental question about principles and concepts.
-This abstract question should help understand the basic concepts and principles in this field, rather than directly answering the specific question.
-
-Specific question: {question}
-
-Please generate an abstract question for retrieving relevant principles and background knowledge:
-"""
-        
-        try:
-            abstract_question = self.llm.generate(
-                prompt=prompt,
-                temperature=self.temperature_stepback,
-                max_tokens=200
-            )
-            
-            abstract_question = abstract_question.strip()
-            
-            if not abstract_question:
-                logger.warning("⚠️  生成的抽象問題為空，使用原始問題")
-                return question
-            
-            return abstract_question
-            
-        except Exception as e:
-            logger.error(f"⚠️  生成抽象問題時出錯: {e}")
-            return question
-    
-    def _get_doc_id(self, doc: Dict) -> str:
-        """生成文檔的唯一標識符"""
-        metadata = doc.get("metadata", {})
-        content = doc.get("content", "")
-        
-        if "arxiv_id" in metadata and "chunk_index" in metadata:
-            return f"{metadata['arxiv_id']}_{metadata['chunk_index']}"
-        elif "file_path" in metadata and "chunk_index" in metadata:
-            return f"{metadata['file_path']}_{metadata['chunk_index']}"
-        else:
-            content_hash = hashlib.md5(content.encode()).hexdigest()[:16]
-            return f"doc_{content_hash}"
+        return generate_step_back_question(
+            llm=self.llm,
+            question=question,
+            temperature=self.temperature_stepback,
+            enable_logging=False
+        )
     
     def _process_subquery_with_hyde(
         self, 
@@ -311,7 +194,7 @@ Please generate an abstract question for retrieving relevant principles and back
         unique_docs = {}
         
         for doc in all_results:
-            doc_id = self._get_doc_id(doc)
+            doc_id = get_doc_id(doc)
             if doc_id not in unique_docs:
                 unique_docs[doc_id] = doc
             else:

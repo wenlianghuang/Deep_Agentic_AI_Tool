@@ -45,6 +45,13 @@ MAX_RESEARCH_ITERATIONS = 20
 # Reflection 配置（通用反思迭代次數）
 MAX_REFLECTION_ITERATION = int(os.getenv("MAX_REFLECTION_ITERATION", "2"))  # 反思的最大迭代次數（默認2次，避免免費API額度快速用完）
 
+# 圖片分析節點重試次數（圖級重試：失敗時回到 analyze 節點重試）
+MAX_ANALYZE_RETRIES = int(os.getenv("MAX_ANALYZE_RETRIES", "3"))
+
+# Agent 圖節點重試次數（圖級重試：planner / research_agent 失敗時回到該節點重試）
+MAX_PLANNER_RETRIES = int(os.getenv("MAX_PLANNER_RETRIES", "3"))
+MAX_RESEARCH_AGENT_RETRIES = int(os.getenv("MAX_RESEARCH_AGENT_RETRIES", "3"))
+
 # Groq API 配置
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = "llama-3.3-70b-versatile"  # 或其他 Groq 支持的模型

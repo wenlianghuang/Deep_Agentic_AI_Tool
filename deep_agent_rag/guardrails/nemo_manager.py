@@ -71,9 +71,8 @@ class HybridGuardrailManager:
                 self.config = yaml.safe_load(f)
             print(f"✅ 載入 Guardrails 配置: {self.config_path}")
         except Exception as e:
-            print(f"⚠️  無法載入 Guardrails 配置，使用默認設定: {e}")
-            self._load_default_config()
-    
+            print(f"⚠️ 沒有相關的 Guardrails 配置文件，使用一般的LLM回應")
+            self._load_default_config()    
     def _load_default_config(self):
         """載入默認配置"""
         self.config = {
@@ -85,6 +84,9 @@ class HybridGuardrailManager:
             },
             "keyword_filter": {
                 "threshold": 0.05,
+                # If true, block as soon as any keyword is matched.
+                # Density threshold remains as a fallback signal.
+                "block_on_match": False,
                 "blocked_keywords": [
                     "伊斯蘭教", "阿拉", "回教徒", "默罕默德",
                     "Islam", "Allah", "Muslim", "Muhammad"
@@ -173,21 +175,27 @@ class HybridGuardrailManager:
             return False, 0.0, ""
         
         # 建立小寫敏感詞集合
-        blocked_keywords = self.config.get("keyword_filter", {}).get("blocked_keywords", [])
-        blocked_keywords_lower = {k.lower() for k in blocked_keywords}
+        keyword_cfg = self.config.get("keyword_filter", {}) or {}
+        blocked_keywords = keyword_cfg.get("blocked_keywords", []) or []
+        blocked_keywords_lower = {k.lower() for k in blocked_keywords if isinstance(k, str) and k.strip()}
         
-        # 計算敏感詞數量
-        sensitive_word_count = sum(
-            1 for word in words
-            if word.strip().lower() in blocked_keywords_lower
-        )
+        # 計算敏感詞數量（token match）
+        sensitive_word_count = sum(1 for word in words if word.strip().lower() in blocked_keywords_lower)
+
+        # 可選：只要命中任一敏感詞就直接阻擋（更穩定，避免長文本密度過低漏檢）
+        block_on_match = bool(keyword_cfg.get("block_on_match", False))
+        if block_on_match and sensitive_word_count > 0:
+            message = keyword_cfg.get("blocked_message", "")
+            # density 仍回傳，方便記錄/監控
+            density = sensitive_word_count / total_words
+            return True, density, message
         
         # 計算密度
         density = sensitive_word_count / total_words
-        threshold = self.config.get("keyword_filter", {}).get("threshold", 0.05)
+        threshold = keyword_cfg.get("threshold", 0.05)
         
         should_block = density >= threshold
-        message = self.config.get("keyword_filter", {}).get("blocked_message", "") if should_block else ""
+        message = keyword_cfg.get("blocked_message", "") if should_block else ""
         
         return should_block, density, message
     
@@ -203,6 +211,8 @@ class HybridGuardrailManager:
         
         # 計算輸入文本的 embedding
         text_embedding = self.model.encode([text], convert_to_numpy=True)[0]
+        text_norm = float(np.linalg.norm(text_embedding))
+        eps = 1e-12
         
         # 獲取相似度門檻
         threshold = self.config.get("semantic_filter", {}).get("similarity_threshold", 0.75)
@@ -212,10 +222,11 @@ class HybridGuardrailManager:
             if topic.embeddings is None or len(topic.embeddings) == 0:
                 continue
             
-            # 計算與所有範例的相似度
-            similarities = np.dot(topic.embeddings, text_embedding) / (
-                np.linalg.norm(topic.embeddings, axis=1) * np.linalg.norm(text_embedding)
-            )
+            # 計算與所有範例的相似度（cosine），加上 eps 避免分母趨近 0 造成誤判
+            denom = (np.linalg.norm(topic.embeddings, axis=1) * max(text_norm, eps))
+            similarities = np.dot(topic.embeddings, text_embedding) / np.maximum(denom, eps)
+            # 數值保護：cosine 理論上應落在 [-1, 1]
+            similarities = np.clip(similarities, -1.0, 1.0)
             
             # 取最大相似度
             max_similarity = np.max(similarities)
