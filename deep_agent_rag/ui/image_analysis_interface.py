@@ -70,6 +70,12 @@ def analyze_image_ui(
         else:
             return "", "", "❌ 無法讀取圖片文件，請重新上傳"
         
+        # 防禦：Gradio 有時會傳入 list，統一為字串
+        if isinstance(image_path, list):
+            image_path = image_path[0] if image_path else ""
+        if isinstance(question, list):
+            question = " ".join(str(q) for q in question).strip() if question else ""
+        
         # 檢查文件是否存在
         if not image_path or not os.path.exists(image_path):
             return "", "", f"❌ 圖片文件不存在：{image_path}"
