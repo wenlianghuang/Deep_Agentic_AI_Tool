@@ -116,10 +116,7 @@ def research_agent_node(state: DeepAgentState, llm_with_tools=None):
             "iteration": current_iteration + 1
         }
     except Exception as e:
+        # 研究失敗時拋出，由圖級重試（agent_graph）捕獲並重試或走 research_agent_error_finish
         print(f"   ⚠️ [Researcher] 研究失敗: {e}")
-        error_msg = AIMessage(content=f"研究過程中發生錯誤: {str(e)}")
-        return {
-            "messages": [error_msg],
-            "iteration": current_iteration + 1
-        }
+        raise
 

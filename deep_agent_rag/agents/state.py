@@ -1,7 +1,13 @@
 """
 Deep Agent 狀態定義
 """
-from typing import List, TypedDict, Annotated
+from typing import List, TypedDict, Annotated, Optional
+
+try:
+    from typing import NotRequired
+except ImportError:
+    from typing_extensions import NotRequired
+
 import operator
 from langchain_core.messages import BaseMessage
 
@@ -13,4 +19,11 @@ class DeepAgentState(TypedDict):
     research_notes: Annotated[List[str], operator.add]   # 儲存每一輪搜尋到的深度內容（使用 operator.add 追加）
     iteration: int              # 追蹤迭代次數，防止無限循環
     query: str                  # 原始問題
+    # 圖級重試（做法 B）：planner / research_agent 失敗時由條件邊決定是否重試
+    planner_retry_count: NotRequired[int]
+    planner_succeeded: NotRequired[bool]
+    planner_error: NotRequired[Optional[str]]
+    research_agent_retry_count: NotRequired[int]
+    research_agent_succeeded: NotRequired[bool]
+    research_agent_error: NotRequired[Optional[str]]
 

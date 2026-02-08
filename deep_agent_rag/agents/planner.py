@@ -11,6 +11,27 @@ from ..utils.llm_utils import get_llm, handle_groq_error
 from ..guidelines import get_guideline, get_customer_journey
 
 
+def get_planner_fallback_tasks(query: str) -> list:
+    """重試用盡時回傳的預設任務清單（供圖的 planner_fallback 節點使用）"""
+    query_lower = (query or "").lower()
+    is_stock_related = any(
+        kw in query_lower
+        for kw in ["股票", "ticker", "公司", "營運", "財報", "投資", "股價"]
+    )
+    if is_stock_related:
+        return [
+            "查詢基礎財務數據和營運狀況",
+            "搜尋近期重大新聞和市場動態",
+            "查詢 PDF 知識庫中的相關理論（如適用）",
+            "分析產業競爭力和未來前景",
+        ]
+    return [
+        "查詢 PDF 知識庫中的相關理論和方法",
+        "搜尋網路上相關的學術資料",
+        "整理和分析收集到的資訊",
+    ]
+
+
 def planner_node(state: DeepAgentState, llm=None):
     """
     規劃節點：將複雜問題拆解為具體的研究計畫
@@ -125,33 +146,7 @@ def planner_node(state: DeepAgentState, llm=None):
             "iteration": 0
         }
     except Exception as e:
-        print(f"   ⚠️ [Planner] 規劃失敗: {e}，使用預設計畫")
-        # 【關鍵改進點 4】異常處理時也根據問題類型選擇預設任務
-        query = state.get("query", "")
-        query_lower = query.lower()
-        is_stock_related = any(keyword in query_lower for keyword in [
-            '股票', 'ticker', '公司', '營運', '財報'
-        ])
-        
-        if is_stock_related:
-            default_tasks = [
-                "查詢基礎財務數據和營運狀況",
-                "搜尋近期重大新聞和市場動態",
-                "查詢 PDF 知識庫中的相關理論（如適用）",
-                "分析產業競爭力和未來前景"
-            ]
-        else:
-            # 非股票問題的預設任務
-            default_tasks = [
-                "查詢 PDF 知識庫中的相關理論和方法",
-                "搜尋網路上相關的學術資料",
-                "整理和分析收集到的資訊"
-            ]
-        
-        return {
-            "tasks": default_tasks,
-            "completed_tasks": [],
-            "research_notes": [],
-            "iteration": 0
-        }
+        # 規劃失敗時拋出，由圖級重試（agent_graph）捕獲並重試或走 planner_fallback
+        print(f"   ⚠️ [Planner] 規劃失敗: {e}")
+        raise
 
