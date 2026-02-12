@@ -5,7 +5,14 @@ Agent 工具定義
 import yfinance as yf
 from langchain_core.tools import tool
 from langchain_community.tools.tavily_search import TavilySearchResults
-from .image_analysis_tool import analyze_image
+from .image_analysis_tool import analyze_image as _local_analyze_image
+
+
+def _get_analyze_image_tool():
+    """優先使用 Image Analysis MCP 工具，失敗則用本地 analyze_image。"""
+    from .image_analysis_mcp_client import get_analyze_image_tool as get_mcp
+    t = get_mcp()
+    return t if t is not None else _local_analyze_image
 
 
 @tool
@@ -561,15 +568,17 @@ def get_tools_list(rag_retriever=None):
         add_papers_tool = tool(add_arxiv_papers_wrapper)
         add_papers_tool.name = "add_arxiv_papers_to_rag"
         
+        analyze_tool = _get_analyze_image_tool()
         return [
-            get_company_deep_info, 
-            search_web, 
+            get_company_deep_info,
+            search_web,
             pdf_tool,
             keywords_tool,
             arxiv_search_tool,
             add_papers_tool,
-            analyze_image
+            analyze_tool,
         ]
     else:
-        return [get_company_deep_info, search_web, analyze_image]
+        analyze_tool = _get_analyze_image_tool()
+        return [get_company_deep_info, search_web, analyze_tool]
 

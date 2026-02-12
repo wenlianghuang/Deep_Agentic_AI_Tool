@@ -286,8 +286,27 @@ def _analyze_image_internal(image_path: str, question: Optional[str] = None) -> 
                 answer = response
             else:
                 answer = str(response)
-            
-            return answer.strip()
+
+            # 某些多模態模型的 content 可能是 list（parts），需轉成字串
+            if isinstance(answer, list):
+                parts: list[str] = []
+                for item in answer:
+                    if isinstance(item, str):
+                        parts.append(item)
+                    elif isinstance(item, dict):
+                        # 常見格式：{"type": "text", "text": "..."}
+                        if "text" in item and isinstance(item["text"], str):
+                            parts.append(item["text"])
+                        else:
+                            parts.append(str(item))
+                    else:
+                        parts.append(str(item))
+                answer = "\n".join(p for p in parts if p is not None)
+            elif isinstance(answer, dict):
+                # 保底：將 dict 轉字串
+                answer = answer.get("text") if isinstance(answer.get("text"), str) else str(answer)
+
+            return str(answer).strip()
             
         except Exception as e:
             error_msg = str(e).lower()

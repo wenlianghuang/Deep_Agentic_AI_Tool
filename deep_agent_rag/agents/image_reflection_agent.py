@@ -169,8 +169,8 @@ def generate_improved_analysis(
     """
     try:
         # 導入圖片分析函數（使用多模態 LLM）
-        from ..tools.image_analysis_tool import _analyze_image_internal
-        
+        from ..tools.image_analysis_mcp_client import analyze_image_result
+
         # 檢測語言
         user_language = detect_language(question if question else original_analysis)
         
@@ -200,7 +200,7 @@ def generate_improved_analysis(
         
         # 重新調用圖片分析（使用多模態 LLM，真正查看圖片）
         print(f"   🔄 [ImageImprovement] 重新分析圖片（結合改進建議）...")
-        improved_analysis = _analyze_image_internal(image_path, question=improved_question)
+        improved_analysis = analyze_image_result(image_path, question=improved_question)
         
         # 檢查結果是否為錯誤訊息
         if improved_analysis.startswith("❌"):

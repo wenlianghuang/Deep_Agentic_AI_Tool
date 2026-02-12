@@ -83,6 +83,9 @@ USE_CALENDAR_MCP = os.getenv("USE_CALENDAR_MCP", "true").lower() == "true"
 CALENDAR_MCP_PORT = int(os.getenv("CALENDAR_MCP_PORT", "8010"))
 CALENDAR_MCP_HTTP_URL = os.getenv("CALENDAR_MCP_HTTP_URL", f"http://127.0.0.1:{CALENDAR_MCP_PORT}/mcp")
 
+# Image Analysis MCP - 圖片分析改走 MCP（stdio），失敗則用本地 tool
+USE_IMAGE_ANALYSIS_MCP = os.getenv("USE_IMAGE_ANALYSIS_MCP", "true").lower() == "true"
+
 # Google Maps API 配置
 NORMAL_GOOGLE_MAPS_API_KEY = os.getenv("NORMAL_GOOGLE_MAPS_API_KEY", "")
 
