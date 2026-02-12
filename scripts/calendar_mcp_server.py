@@ -151,4 +151,17 @@ if __name__ == "__main__":
     if args.transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        mcp.run(transport="http", port=args.port)
+        # 部分 FastMCP 版本 run() 不支援 port，改由 uvicorn 跑 HTTP app 以指定 port
+        import uvicorn
+        app = None
+        try:
+            app = mcp.http_app()
+        except AttributeError:
+            get_app = getattr(mcp, "get_asgi_app", None)
+            if callable(get_app):
+                app = get_app()
+        if app is not None:
+            uvicorn.run(app, host="127.0.0.1", port=args.port)
+        else:
+            print("此 FastMCP 版本不支援 http_app() / get_asgi_app()，無法指定 port。請改用 stdio 或升級套件。", file=sys.stderr)
+            sys.exit(1)

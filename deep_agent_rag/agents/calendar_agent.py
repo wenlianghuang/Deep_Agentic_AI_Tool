@@ -8,7 +8,11 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 from ..utils.llm_utils import get_llm, handle_groq_error
-from ..tools.calendar_tool import create_calendar_event, update_calendar_event, delete_calendar_event
+from ..tools.calendar_tool import (
+    create_calendar_event as _local_create_calendar_event,
+    update_calendar_event as _local_update_calendar_event,
+    delete_calendar_event as _local_delete_calendar_event,
+)
 from .calendar_reflection_agent import reflect_on_calendar_event, generate_improved_calendar_event
 from ..config import MAX_REFLECTION_ITERATION
 from ..tools.googlemaps_tool import enrich_location_info
@@ -25,6 +29,25 @@ from .calendar_validation import (
     parse_datetime
 )
 from ..tools.calendar_tool import validate_and_clean_emails
+
+
+def _get_create_calendar_event_tool():
+    """優先使用 MCP 工具，失敗則用本地 calendar_tool。"""
+    from ..tools.calendar_mcp_client import get_create_calendar_event_tool as get_mcp
+    t = get_mcp()
+    return t if t is not None else _local_create_calendar_event
+
+
+def _get_update_calendar_event_tool():
+    from ..tools.calendar_mcp_client import get_update_calendar_event_tool as get_mcp
+    t = get_mcp()
+    return t if t is not None else _local_update_calendar_event
+
+
+def _get_delete_calendar_event_tool():
+    from ..tools.calendar_mcp_client import get_delete_calendar_event_tool as get_mcp
+    t = get_mcp()
+    return t if t is not None else _local_delete_calendar_event
 
 
 def generate_calendar_draft(
@@ -432,8 +455,8 @@ def create_calendar_draft(event_dict: dict) -> str:
         創建結果消息
     """
     try:
-        # 創建事件
-        result = create_calendar_event.invoke({
+        create_tool = _get_create_calendar_event_tool()
+        result = create_tool.invoke({
             "summary": event_dict.get("summary", ""),
             "start_datetime": event_dict.get("start_datetime", ""),
             "end_datetime": event_dict.get("end_datetime", ""),
@@ -465,8 +488,8 @@ def update_calendar_draft(event_id: str, event_dict: dict) -> str:
         更新結果消息
     """
     try:
-        # 更新事件
-        result = update_calendar_event.invoke({
+        update_tool = _get_update_calendar_event_tool()
+        result = update_tool.invoke({
             "event_id": event_id,
             "summary": event_dict.get("summary"),
             "start_datetime": event_dict.get("start_datetime"),
@@ -498,8 +521,8 @@ def delete_calendar_draft(event_id: str) -> str:
         刪除結果消息
     """
     try:
-        # 刪除事件
-        result = delete_calendar_event.invoke({
+        delete_tool = _get_delete_calendar_event_tool()
+        result = delete_tool.invoke({
             "event_id": event_id
         })
         

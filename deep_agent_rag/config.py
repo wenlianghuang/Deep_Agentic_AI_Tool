@@ -78,6 +78,11 @@ CALENDAR_CREDENTIALS_FILE = os.getenv("CALENDAR_CREDENTIALS_FILE", "credentials_
 CALENDAR_TOKEN_FILE = os.getenv("CALENDAR_TOKEN_FILE", "token.json")  # 儲存存取令牌的文件（可與 Gmail 共用）
 CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar']  # Calendar API 權限範圍
 
+# Calendar MCP - Gradio 使用 MCP client 呼叫行事曆時，會先啟動此 server（HTTP）
+USE_CALENDAR_MCP = os.getenv("USE_CALENDAR_MCP", "true").lower() == "true"
+CALENDAR_MCP_PORT = int(os.getenv("CALENDAR_MCP_PORT", "8010"))
+CALENDAR_MCP_HTTP_URL = os.getenv("CALENDAR_MCP_HTTP_URL", f"http://127.0.0.1:{CALENDAR_MCP_PORT}/mcp")
+
 # Google Maps API 配置
 NORMAL_GOOGLE_MAPS_API_KEY = os.getenv("NORMAL_GOOGLE_MAPS_API_KEY", "")
 
