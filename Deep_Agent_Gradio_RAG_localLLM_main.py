@@ -19,6 +19,7 @@ from deep_agent_rag.rag import init_rag_system
 from deep_agent_rag.graph import build_agent_graph
 from deep_agent_rag.ui import create_gradio_interface
 from deep_agent_rag.guidelines import initialize_parlant_sync
+from deep_agent_rag.config import USE_CALENDAR_MCP, USE_IMAGE_ANALYSIS_MCP
 
 
 def main():
@@ -43,7 +44,35 @@ def main():
     print("🔧 正在構建 Agent 圖表...")
     graph = build_agent_graph(rag_retriever=rag_retriever)
     print("✅ 系統初始化完成！\n")
-    
+
+    # Calendar 改走 MCP：啟動 Calendar MCP Server 並載入 tools
+    if USE_CALENDAR_MCP:
+        print("🔧 正在載入 Calendar MCP 工具（stdio）...")
+        try:
+            from deep_agent_rag.tools.calendar_mcp_client import initialize
+            if initialize():
+                print("✅ Calendar MCP 已就緒（行事曆將經由 MCP 呼叫）\n")
+            else:
+                print("⚠️ Calendar MCP 載入失敗，行事曆將使用本地工具\n")
+        except Exception as e:
+            print(f"⚠️ Calendar MCP 初始化失敗: {e}，行事曆將使用本地工具\n")
+    else:
+        print("📅 行事曆使用本地工具（USE_CALENDAR_MCP=false）\n")
+
+    # Image Analysis 改走 MCP（stdio），失敗則用本地
+    if USE_IMAGE_ANALYSIS_MCP:
+        print("🔧 正在載入 Image Analysis MCP 工具（stdio）...")
+        try:
+            from deep_agent_rag.tools.image_analysis_mcp_client import initialize as init_image_mcp
+            if init_image_mcp():
+                print("✅ Image Analysis MCP 已就緒（圖片分析將經由 MCP 呼叫）\n")
+            else:
+                print("⚠️ Image Analysis MCP 載入失敗，圖片分析將使用本地工具\n")
+        except Exception as e:
+            print(f"⚠️ Image Analysis MCP 初始化失敗: {e}，圖片分析將使用本地工具\n")
+    else:
+        print("🖼️ 圖片分析使用本地工具（USE_IMAGE_ANALYSIS_MCP=false）\n")
+
     # 創建 Gradio 界面
     print("🌐 正在啟動 Gradio 界面...\n")
     demo = create_gradio_interface(graph)

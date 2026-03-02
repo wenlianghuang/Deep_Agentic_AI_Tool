@@ -22,28 +22,36 @@ from ..config import (
 )
 
 
+def _ensure_str(value, default: str = "") -> str:
+    """若為 list（如 Gradio 多選），取第一個元素並轉字串；否則轉字串。"""
+    if value is None:
+        return default
+    if isinstance(value, list):
+        return str(value[0]).strip() if value else default
+    return str(value).strip() if str(value).strip() else default
+
+
 def validate_image_file(image_path: str) -> bool:
     """
     驗證圖片文件是否存在且格式有效
     
     Args:
-        image_path: 圖片文件路徑
+        image_path: 圖片文件路徑（可為 str 或 list，list 時取第一項）
     
     Returns:
         如果圖片有效則返回 True
     """
-    if not image_path or not image_path.strip():
+    path = _ensure_str(image_path) if not isinstance(image_path, str) else (image_path or "").strip()
+    if not path:
         return False
-    
-    image_path = image_path.strip()
-    
+
     # 檢查文件是否存在
-    if not os.path.exists(image_path):
+    if not os.path.exists(path):
         return False
-    
+
     # 檢查是否為圖片文件
     try:
-        with Image.open(image_path) as img:
+        with Image.open(path) as img:
             img.verify()
         return True
     except Exception:
@@ -222,14 +230,20 @@ def _analyze_image_internal(image_path: str, question: Optional[str] = None) -> 
     這個函數可以被直接調用，不依賴 @tool 裝飾器
     
     Args:
-        image_path: 圖片文件路徑（支持常見圖片格式：jpg, png, gif, webp 等）
-        question: 可選的特定問題，例如："這張圖片中有什麼？"、"描述圖片中的場景"等。
-                  如果不提供，將進行通用圖片分析
+        image_path: 圖片文件路徑（支持常見圖片格式：jpg, png, gif, webp 等；若為 list 則取第一項）
+        question: 可選的特定問題；若為 list 則取第一項或合併為字串
     
     Returns:
         圖片分析的結果描述
     """
     try:
+        # 防禦：Gradio 等可能傳入 list
+        image_path = _ensure_str(image_path) if isinstance(image_path, list) else (image_path or "").strip()
+        if question is not None and isinstance(question, list):
+            question = " ".join(str(q) for q in question).strip() or None
+        elif question is not None:
+            question = (question.strip() or None) if isinstance(question, str) else None
+
         # 驗證圖片文件
         if not validate_image_file(image_path):
             return (
@@ -272,8 +286,27 @@ def _analyze_image_internal(image_path: str, question: Optional[str] = None) -> 
                 answer = response
             else:
                 answer = str(response)
-            
-            return answer.strip()
+
+            # 某些多模態模型的 content 可能是 list（parts），需轉成字串
+            if isinstance(answer, list):
+                parts: list[str] = []
+                for item in answer:
+                    if isinstance(item, str):
+                        parts.append(item)
+                    elif isinstance(item, dict):
+                        # 常見格式：{"type": "text", "text": "..."}
+                        if "text" in item and isinstance(item["text"], str):
+                            parts.append(item["text"])
+                        else:
+                            parts.append(str(item))
+                    else:
+                        parts.append(str(item))
+                answer = "\n".join(p for p in parts if p is not None)
+            elif isinstance(answer, dict):
+                # 保底：將 dict 轉字串
+                answer = answer.get("text") if isinstance(answer.get("text"), str) else str(answer)
+
+            return str(answer).strip()
             
         except Exception as e:
             error_msg = str(e).lower()

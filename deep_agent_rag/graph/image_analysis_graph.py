@@ -13,7 +13,7 @@ except ImportError:
 from langchain_core.messages import BaseMessage
 import operator
 
-from ..tools.image_analysis_tool import _analyze_image_internal
+from ..tools.image_analysis_mcp_client import analyze_image_result
 from ..agents.image_reflection_agent import reflect_on_image_analysis, generate_improved_analysis
 from ..config import MAX_REFLECTION_ITERATION, MAX_ANALYZE_RETRIES
 
@@ -47,7 +47,7 @@ def analyze_image_node(state: ImageAnalysisState) -> dict:
     print(f"   🔍 [ImageAnalysis] 第 {current_iter + 1} 輪：正在分析圖片...（重試計數：{retry_count}）")
 
     try:
-        result = _analyze_image_internal(image_path, question=question)
+        result = analyze_image_result(image_path, question=question)
         return {
             **state,
             "analysis_result": result,
