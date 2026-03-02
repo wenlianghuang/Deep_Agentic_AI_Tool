@@ -90,8 +90,13 @@ def run_research_agent(query: str, graph, thread_id: str = None) -> Iterator[Tup
                 # 更新當前節點狀態
                 node_emoji = {
                     "planner": "📝",
-                    "research_agent": "🕵️",
-                    "tools": "🔧",
+                    "supervisor": "🎯",
+                    "academic_researcher": "📚",
+                    "stock_researcher": "📈",
+                    "web_researcher": "🌐",
+                    "tools_academic": "🔧",
+                    "tools_stock": "🔧",
+                    "tools_web": "🔧",
                     "note_taking": "📌",
                     "final_report": "📊"
                 }.get(node, "🔄")

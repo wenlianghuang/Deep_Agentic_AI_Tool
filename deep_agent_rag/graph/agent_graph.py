@@ -1,6 +1,6 @@
 """
 Agent 圖表構建
-定義節點之間的連接和路由邏輯；含圖級重試（planner / research_agent 失敗時重試）
+Multi-Agent：Supervisor 依任務類型派單給學術 / 股票 / 網路專長 researcher，各自使用專屬 tools。
 """
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
@@ -12,15 +12,19 @@ from ..agents.planner import planner_node, get_planner_fallback_tasks
 from ..agents.researcher import research_agent_node
 from ..agents.note_taker import note_taking_node
 from ..agents.reporter import final_report_node
-from ..tools import get_tools_list
+from ..tools import get_tools_list_academic, get_tools_list_stock, get_tools_list_web
 from ..utils.llm_utils import get_llm
 from ..config import MAX_RESEARCH_ITERATIONS, MAX_PLANNER_RETRIES, MAX_RESEARCH_AGENT_RETRIES
 
+# 任務類型關鍵字（與 planner/researcher 一致）
+ACADEMIC_KEYWORDS = ["pdf", "知識庫", "理論", "論文", "學術", "方法", "arxiv", "研究"]
+STOCK_KEYWORDS = ["股票", "財報", "營運", "公司", "投資", "股價", "市值", "ticker", "msft", "googl", "aapl", "tsla", "nvda"]
+
 
 def route_after_planner(state: DeepAgentState) -> str:
-    """規劃後路由：成功 → research_agent；失敗且未達重試上限 → 回 planner；否則 → planner_fallback"""
+    """規劃後路由：成功 → supervisor；失敗且未達重試上限 → 回 planner；否則 → planner_fallback"""
     if state.get("planner_succeeded", True):
-        return "research_agent"
+        return "supervisor"
     retry_count = state.get("planner_retry_count", 0)
     if retry_count < MAX_PLANNER_RETRIES:
         print(f"   🔄 [Planner] 將重試規劃（{retry_count}/{MAX_PLANNER_RETRIES}）")
@@ -28,29 +32,54 @@ def route_after_planner(state: DeepAgentState) -> str:
     return "planner_fallback"
 
 
-def route_after_agent(state: DeepAgentState) -> str:
-    """決定是要呼叫工具、進入筆記階段、重試 research_agent、或走錯誤結束節點"""
-    # 研究節點失敗且需重試或走錯誤結束
+def _task_type(current_task: str) -> str:
+    """依任務內容回傳專長類型：academic_researcher | stock_researcher | web_researcher"""
+    t = (current_task or "").lower()
+    if any(k in t for k in ACADEMIC_KEYWORDS):
+        return "academic_researcher"
+    if any(k in t for k in STOCK_KEYWORDS):
+        return "stock_researcher"
+    return "web_researcher"
+
+
+def supervisor_node(state: DeepAgentState) -> dict:
+    """Supervisor：更新 current_agent，派單由 route_supervisor 決定"""
+    tasks = state.get("tasks", [])
+    completed = state.get("completed_tasks", [])
+    print(f"   🎯 [Supervisor] 任務進度 {len(completed)}/{len(tasks)}")
+    return {"current_agent": "supervisor"}
+
+
+def route_supervisor(state: DeepAgentState) -> str:
+    """Supervisor 路由：尚有任務 → 依任務類型派給對應專長；否則 → final_report"""
+    tasks = state.get("tasks", [])
+    completed = state.get("completed_tasks", [])
+    if len(completed) >= len(tasks):
+        print("   🎯 [Supervisor] 派單 → final_report")
+        return "final_report"
+    current_task = tasks[len(completed)]
+    specialist = _task_type(current_task)
+    print(f"   🎯 [Supervisor] 派單 → {specialist}（任務: {current_task[:40]}…）")
+    return specialist
+
+
+def route_after_specialist(state: DeepAgentState) -> str:
+    """專長節點後路由：工具調用 → 對應 tools 節點；失敗 → 重試該專長或 error_finish；否則 → note_taking"""
     if state.get("research_agent_succeeded", True) is False:
         retry_count = state.get("research_agent_retry_count", 0)
         if retry_count < MAX_RESEARCH_AGENT_RETRIES:
-            print(f"   🔄 [Researcher] 將重試研究（{retry_count}/{MAX_RESEARCH_AGENT_RETRIES}）")
-            return "research_agent"
+            agent = state.get("current_agent", "web_researcher")
+            print(f"   🔄 [{agent}] 將重試（{retry_count}/{MAX_RESEARCH_AGENT_RETRIES}）")
+            return agent
         return "research_agent_error_finish"
-    # 原有邏輯：工具調用 vs 筆記
     last_msg = state["messages"][-1]
     if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
-        return "tools"
+        agent = state.get("current_agent", "web_researcher")
+        tools_node = {"academic_researcher": "tools_academic", "stock_researcher": "tools_stock", "web_researcher": "tools_web"}.get(agent, "tools_web")
+        return tools_node
     if state.get("iteration", 0) >= MAX_RESEARCH_ITERATIONS:
         return "note_taking"
     return "note_taking"
-
-
-def route_after_note(state: DeepAgentState) -> str:
-    """決定是否還有下一個任務要跑"""
-    if len(state["completed_tasks"]) < len(state["tasks"]):
-        return "research_agent"
-    return "final_report"
 
 
 def planner_fallback_node(state: DeepAgentState) -> dict:
@@ -79,18 +108,31 @@ def research_agent_error_finish_node(state: DeepAgentState) -> dict:
 
 def build_agent_graph(rag_retriever=None):
     """
-    構建 Deep Agent 圖表
-    
-    Args:
-        rag_retriever: RAG 檢索器（可選）
-    
-    Returns:
-        編譯後的圖表
+    構建 Multi-Agent 圖表：Supervisor → 學術/股票/網路專長 researcher → 各自 tools → note_taking → supervisor → final_report
     """
-    # 獲取工具列表
-    tools_list = get_tools_list(rag_retriever)
-    
-    # 創建節點函數的包裝器，傳入必要的依賴；圖級重試：失敗時寫入 state 供路由重試
+    tools_academic = get_tools_list_academic(rag_retriever)
+    tools_stock = get_tools_list_stock()
+    tools_web = get_tools_list_web()
+
+    def _specialist_wrapper(tools_list: list, agent_name: str):
+        def wrapper(state):
+            llm = get_llm()
+            llm_with_tools = llm.bind_tools(tools_list)
+            try:
+                out = research_agent_node(state, llm_with_tools=llm_with_tools)
+                return {**out, "research_agent_succeeded": True, "research_agent_retry_count": 0, "current_agent": agent_name}
+            except Exception as e:
+                retry_count = state.get("research_agent_retry_count", 0)
+                print(f"   ⚠️ [{agent_name}] 研究失敗（第 {retry_count + 1} 次）: {e}")
+                return {
+                    **state,
+                    "research_agent_succeeded": False,
+                    "research_agent_retry_count": retry_count + 1,
+                    "research_agent_error": str(e),
+                    "current_agent": agent_name,
+                }
+        return wrapper
+
     def planner_wrapper(state):
         llm = get_llm()
         try:
@@ -106,72 +148,76 @@ def build_agent_graph(rag_retriever=None):
                 "planner_error": str(e),
             }
 
-    def researcher_wrapper(state):
-        llm = get_llm()
-        llm_with_tools = llm.bind_tools(tools_list)
-        try:
-            out = research_agent_node(state, llm_with_tools=llm_with_tools)
-            return {**out, "research_agent_succeeded": True, "research_agent_retry_count": 0}
-        except Exception as e:
-            retry_count = state.get("research_agent_retry_count", 0)
-            print(f"   ⚠️ [Researcher] 研究失敗（第 {retry_count + 1} 次）: {e}")
-            return {
-                **state,
-                "research_agent_succeeded": False,
-                "research_agent_retry_count": retry_count + 1,
-                "research_agent_error": str(e),
-            }
-    
+    academic_wrapper = _specialist_wrapper(tools_academic, "academic_researcher")
+    stock_wrapper = _specialist_wrapper(tools_stock, "stock_researcher")
+    web_wrapper = _specialist_wrapper(tools_web, "web_researcher")
+
     def note_taker_wrapper(state):
         llm = get_llm()
         return note_taking_node(state, llm=llm)
-    
+
     def reporter_wrapper(state):
         llm = get_llm()
         return final_report_node(state, llm=llm)
-    
-    # 構建圖表
+
     builder = StateGraph(DeepAgentState)
-    
+
     builder.add_node("planner", planner_wrapper)
     builder.add_node("planner_fallback", planner_fallback_node)
-    builder.add_node("research_agent", researcher_wrapper)
+    builder.add_node("supervisor", supervisor_node)
+    builder.add_node("academic_researcher", academic_wrapper)
+    builder.add_node("stock_researcher", stock_wrapper)
+    builder.add_node("web_researcher", web_wrapper)
+    builder.add_node("tools_academic", ToolNode(tools_academic))
+    builder.add_node("tools_stock", ToolNode(tools_stock))
+    builder.add_node("tools_web", ToolNode(tools_web))
     builder.add_node("research_agent_error_finish", research_agent_error_finish_node)
-    builder.add_node("tools", ToolNode(tools_list))
     builder.add_node("note_taking", note_taker_wrapper)
     builder.add_node("final_report", reporter_wrapper)
-    
+
     builder.add_edge(START, "planner")
     builder.add_conditional_edges(
         "planner",
         route_after_planner,
         {
-            "research_agent": "research_agent",
+            "supervisor": "supervisor",
             "retry_planner": "planner",
             "planner_fallback": "planner_fallback",
         },
     )
-    builder.add_edge("planner_fallback", "research_agent")
-    
+    builder.add_edge("planner_fallback", "supervisor")
     builder.add_conditional_edges(
-        "research_agent",
-        route_after_agent,
+        "supervisor",
+        route_supervisor,
         {
-            "tools": "tools",
-            "note_taking": "note_taking",
-            "research_agent_error_finish": "research_agent_error_finish",
+            "academic_researcher": "academic_researcher",
+            "stock_researcher": "stock_researcher",
+            "web_researcher": "web_researcher",
+            "final_report": "final_report",
         },
     )
+
+    specialist_routes = {
+        "tools_academic": "tools_academic",
+        "tools_stock": "tools_stock",
+        "tools_web": "tools_web",
+        "note_taking": "note_taking",
+        "research_agent_error_finish": "research_agent_error_finish",
+        "academic_researcher": "academic_researcher",
+        "stock_researcher": "stock_researcher",
+        "web_researcher": "web_researcher",
+    }
+    for node in ("academic_researcher", "stock_researcher", "web_researcher"):
+        builder.add_conditional_edges(node, route_after_specialist, specialist_routes)
+
     builder.add_edge("research_agent_error_finish", "note_taking")
-    builder.add_edge("tools", "research_agent")
-    
-    builder.add_conditional_edges(
-        "note_taking",
-        route_after_note,
-        {"research_agent": "research_agent", "final_report": "final_report"}
-    )
+    builder.add_edge("tools_academic", "academic_researcher")
+    builder.add_edge("tools_stock", "stock_researcher")
+    builder.add_edge("tools_web", "web_researcher")
+
+    builder.add_edge("note_taking", "supervisor")
     builder.add_edge("final_report", END)
-    
+
     graph = builder.compile(checkpointer=MemorySaver())
     return graph
 
