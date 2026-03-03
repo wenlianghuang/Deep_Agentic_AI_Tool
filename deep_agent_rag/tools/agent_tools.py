@@ -582,3 +582,45 @@ def get_tools_list(rag_retriever=None):
         analyze_tool = _get_analyze_image_tool()
         return [get_company_deep_info, search_web, analyze_tool]
 
+
+def _make_pdf_arxiv_tools(rag_retriever):
+    """建立 PDF/arXiv 相關工具（供 get_tools_list 與 get_tools_list_academic 使用）。"""
+    if not rag_retriever:
+        return []
+    def query_pdf_wrapper(query: str) -> str:
+        """查詢 PDF 知識庫中的相關資訊，用於學術理論、論文內容、研究方法等。"""
+        return query_pdf_knowledge(query, rag_retriever=rag_retriever)
+    def extract_keywords_wrapper(query: str) -> str:
+        """從 PDF 知識庫中提取學術關鍵字，用於 arXiv 搜尋。"""
+        return extract_keywords_from_pdf(query, rag_retriever=rag_retriever)
+    def add_arxiv_papers_wrapper(arxiv_ids_json: str) -> str:
+        """下載 arXiv 論文並添加到 RAG 系統中，擴展知識庫。"""
+        return add_arxiv_papers_to_rag(arxiv_ids_json, rag_retriever=rag_retriever)
+    pdf_tool = tool(query_pdf_wrapper)
+    pdf_tool.name = "query_pdf_knowledge"
+    keywords_tool = tool(extract_keywords_wrapper)
+    keywords_tool.name = "extract_keywords_from_pdf"
+    arxiv_search_tool = tool(search_arxiv_papers)
+    arxiv_search_tool.name = "search_arxiv_papers"
+    add_papers_tool = tool(add_arxiv_papers_wrapper)
+    add_papers_tool.name = "add_arxiv_papers_to_rag"
+    return [pdf_tool, keywords_tool, arxiv_search_tool, add_papers_tool]
+
+
+def get_tools_list_academic(rag_retriever=None):
+    """學術專長：PDF 知識庫、arXiv 論文搜尋與擴展，外加 search_web 作為輔助。"""
+    academic = _make_pdf_arxiv_tools(rag_retriever)
+    if not academic:
+        return [search_web]
+    return academic + [search_web]
+
+
+def get_tools_list_stock():
+    """股票專長：公司深度資訊與網路搜尋（新聞/動態）。"""
+    return [get_company_deep_info, search_web]
+
+
+def get_tools_list_web():
+    """網路搜尋專長：僅 search_web。"""
+    return [search_web]
+

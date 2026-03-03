@@ -26,4 +26,6 @@ class DeepAgentState(TypedDict):
     research_agent_retry_count: NotRequired[int]
     research_agent_succeeded: NotRequired[bool]
     research_agent_error: NotRequired[Optional[str]]
+    # Multi-Agent：目前執行的 agent，供 Supervisor 與日誌使用
+    current_agent: NotRequired[Optional[str]]
 
