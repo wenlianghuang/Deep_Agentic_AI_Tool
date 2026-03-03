@@ -390,7 +390,8 @@ def _create_research_interface(graph):
 def _create_simple_chatbot_tab():
     """創建簡單聊天機器人標籤頁內容"""
     from .simple_chatbot_interface import chat_with_llm_streaming, get_llm_status
-    
+    from ..memory.chat_memory import save_conversation_summary
+
     # 標題說明
     gr.Markdown(
         """
@@ -407,14 +408,19 @@ def _create_simple_chatbot_tab():
         elem_classes=["warning-box"]
     )
     
-    # Guardrails 啟用開關
+    # Guardrails 與長期記憶開關
     with gr.Row():
         enable_guardrails_checkbox = gr.Checkbox(
             label="🛡️ 啟用 Guardrails 內容過濾",
             value=True,
             info="啟用後將檢查輸入和輸出內容，阻擋敏感話題"
         )
-    
+        enable_long_term_memory_checkbox = gr.Checkbox(
+            label="🧠 啟用長期記憶（Chroma）",
+            value=True,
+            info="清除對話時會儲存摘要；下次提問會自動檢索相關記憶"
+        )
+
     # 系統提示詞設定
     with gr.Accordion("⚙️ 進階設定", open=False):
         system_prompt = gr.Textbox(
@@ -468,18 +474,21 @@ def _create_simple_chatbot_tab():
     )
     
     # 事件綁定
-    def clear_chat():
-        """清除對話"""
+    def save_then_clear(history, enable_long_term_memory):
+        """清除對話前先將當前對話摘要寫入 Chroma 長期記憶，再清空畫面。"""
+        if enable_long_term_memory and history and len(history) > 0:
+            save_conversation_summary(history, user_id="default")
         return [], ""
-    
+
     def refresh_status():
         """更新 LLM 狀態"""
         return get_llm_status()
-    
+
+    _chat_inputs = [msg, chatbot, system_prompt, enable_guardrails_checkbox, enable_long_term_memory_checkbox]
     # 發送消息事件
     msg.submit(
         fn=chat_with_llm_streaming,
-        inputs=[msg, chatbot, system_prompt, enable_guardrails_checkbox],
+        inputs=_chat_inputs,
         outputs=[chatbot],
         queue=True
     ).then(
@@ -487,10 +496,10 @@ def _create_simple_chatbot_tab():
         outputs=[msg],
         queue=False
     )
-    
+
     submit_btn.click(
         fn=chat_with_llm_streaming,
-        inputs=[msg, chatbot, system_prompt, enable_guardrails_checkbox],
+        inputs=_chat_inputs,
         outputs=[chatbot],
         queue=True
     ).then(
@@ -498,9 +507,10 @@ def _create_simple_chatbot_tab():
         outputs=[msg],
         queue=False
     )
-    
+
     clear_btn.click(
-        fn=clear_chat,
+        fn=save_then_clear,
+        inputs=[chatbot, enable_long_term_memory_checkbox],
         outputs=[chatbot, msg],
         queue=False
     )
