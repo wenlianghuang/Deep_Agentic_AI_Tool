@@ -4,9 +4,11 @@
 from .chat_memory import (
     retrieve_memories,
     save_conversation_summary,
+    clear_chat_memory,
 )
 
 __all__ = [
     "retrieve_memories",
     "save_conversation_summary",
+    "clear_chat_memory",
 ]

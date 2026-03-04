@@ -12,7 +12,7 @@ from langchain_core.runnables import RunnableLambda
 from ..utils.llm_utils import get_llm_type, is_using_local_llm, get_llm
 from ..guardrails.nemo_manager import get_guardrail_manager
 from ..tools.agent_tools import search_web
-from ..memory.chat_memory import retrieve_memories, save_conversation_summary
+from ..memory.chat_memory import retrieve_memories, save_conversation_summary, clear_chat_memory
 
 
 """
@@ -483,7 +483,9 @@ def create_simple_chatbot_interface():
         with gr.Row():
             submit_btn = gr.Button("📤 發送", variant="primary")
             clear_btn = gr.Button("🗑️ 清除對話", variant="secondary")
+            clear_memory_btn = gr.Button("🧹 清空長期記憶", variant="secondary")
             refresh_status_btn = gr.Button("🔄 更新狀態", variant="secondary")
+        memory_action_status = gr.Markdown(value="", visible=True)
         
         # 示例問題
         gr.Examples(
@@ -504,6 +506,11 @@ def create_simple_chatbot_interface():
             if enable_long_term_memory and history and len(history) > 0:
                 save_conversation_summary(history, user_id="default")
             return [], ""
+        
+        def do_clear_memory():
+            """清空 Chroma 長期記憶並回傳狀態訊息"""
+            clear_chat_memory()
+            return "✅ 已清空長期記憶（Chroma 對話摘要已刪除）"
         
         def refresh_status():
             """更新 LLM 狀態"""
@@ -556,6 +563,12 @@ def create_simple_chatbot_interface():
             fn=save_then_clear,
             inputs=[chatbot, enable_long_term_memory_checkbox],
             outputs=[chatbot, msg],
+            queue=False
+        )
+        
+        clear_memory_btn.click(
+            fn=do_clear_memory,
+            outputs=[memory_action_status],
             queue=False
         )
         
