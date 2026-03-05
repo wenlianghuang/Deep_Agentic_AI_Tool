@@ -12,6 +12,7 @@ from langchain_core.runnables import RunnableLambda
 from ..utils.llm_utils import get_llm_type, is_using_local_llm, get_llm
 from ..guardrails.nemo_manager import get_guardrail_manager
 from ..tools.agent_tools import search_web
+from ..memory.chat_memory import retrieve_memories, save_conversation_summary, clear_chat_memory
 
 
 """
@@ -112,7 +113,8 @@ def chat_with_llm_streaming(
     message: str,
     history: List[Dict[str, str]],
     system_prompt: str = "你是一個有幫助的AI助手。請用繁體中文回答問題。",
-    enable_guardrails: bool = True
+    enable_guardrails: bool = True,
+    enable_long_term_memory: bool = True,
 ):
     """
     與 LLM 進行流式對話（逐字顯示）
@@ -182,6 +184,17 @@ def chat_with_llm_streaming(
         
         # 構建消息列表
         messages = [SystemMessage(content=system_prompt)]
+        
+        # 長期記憶：依當前問題檢索過往對話摘要，注入 context
+        if enable_long_term_memory:
+            memory_context = retrieve_memories(message, user_id="default", k=5)
+            if memory_context:
+                memory_block = f"""以下是你與用戶的過往相關記憶（僅供參考，請自然融入回答）：
+---
+{memory_context}
+---
+"""
+                messages.append(SystemMessage(content=memory_block))
         
         # 如果有網路搜尋結果，將其作為 SystemMessage 插入（隱藏在 system context）
         if web_search_results:
@@ -380,12 +393,17 @@ def create_simple_chatbot_interface():
             elem_classes=["warning-box"]
         )
         
-        # Guardrails 啟用開關
+        # Guardrails 與長期記憶開關
         with gr.Row():
             enable_guardrails_checkbox = gr.Checkbox(
                 label="🛡️ 啟用 Guardrails 內容過濾",
                 value=True,
                 info="啟用後將檢查輸入和輸出內容，阻擋敏感話題"
+            )
+            enable_long_term_memory_checkbox = gr.Checkbox(
+                label="🧠 啟用長期記憶（Chroma）",
+                value=True,
+                info="清除對話時會儲存摘要；下次提問會自動檢索相關記憶"
             )
         
         # 系統提示詞設定（可選）
@@ -465,7 +483,9 @@ def create_simple_chatbot_interface():
         with gr.Row():
             submit_btn = gr.Button("📤 發送", variant="primary")
             clear_btn = gr.Button("🗑️ 清除對話", variant="secondary")
+            clear_memory_btn = gr.Button("🧹 清空長期記憶", variant="secondary")
             refresh_status_btn = gr.Button("🔄 更新狀態", variant="secondary")
+        memory_action_status = gr.Markdown(value="", visible=True)
         
         # 示例問題
         gr.Examples(
@@ -481,9 +501,16 @@ def create_simple_chatbot_interface():
         )
         
         # 事件綁定
-        def clear_chat():
-            """清除對話"""
+        def save_then_clear(history, enable_long_term_memory):
+            """清除對話前先將當前對話摘要寫入 Chroma 長期記憶，再清空畫面。"""
+            if enable_long_term_memory and history and len(history) > 0:
+                save_conversation_summary(history, user_id="default")
             return [], ""
+        
+        def do_clear_memory():
+            """清空 Chroma 長期記憶並回傳狀態訊息"""
+            clear_chat_memory()
+            return "✅ 已清空長期記憶（Chroma 對話摘要已刪除）"
         
         def refresh_status():
             """更新 LLM 狀態"""
@@ -493,46 +520,55 @@ def create_simple_chatbot_interface():
             """更新 Guardrails 狀態"""
             return get_guardrails_status()
         
-        def send_message_and_clear(message, history, system_prompt, enable_guardrails):
+        def send_message_and_clear(message, history, system_prompt, enable_guardrails, enable_long_term_memory):
             """發送消息並立即清除輸入框"""
-            # 立即清除輸入框（返回空字符串）
-            # 同時保存消息內容到 State，供流式函數使用
-            return "", message, history, system_prompt, enable_guardrails
+            return "", message, history, system_prompt, enable_guardrails, enable_long_term_memory
         
-        def process_streaming(message_text, history, system_prompt, enable_guardrails):
+        def process_streaming(message_text, history, system_prompt, enable_guardrails, enable_long_term_memory):
             """處理流式響應"""
-            # 調用流式函數
-            for updated_history in chat_with_llm_streaming(message_text, history, system_prompt, enable_guardrails):
+            for updated_history in chat_with_llm_streaming(
+                message_text, history, system_prompt, enable_guardrails, enable_long_term_memory
+            ):
                 yield updated_history
         
         # 發送消息事件 - 先清除輸入框，再處理流式響應
+        _inputs = [msg, chatbot, system_prompt, enable_guardrails_checkbox, enable_long_term_memory_checkbox]
+        _stream_inputs = [message_state, chatbot, system_prompt, enable_guardrails_checkbox, enable_long_term_memory_checkbox]
         msg.submit(
             fn=send_message_and_clear,
-            inputs=[msg, chatbot, system_prompt, enable_guardrails_checkbox],
-            outputs=[msg, message_state, chatbot, system_prompt, enable_guardrails_checkbox],
+            inputs=_inputs,
+            outputs=[msg, message_state, chatbot, system_prompt, enable_guardrails_checkbox, enable_long_term_memory_checkbox],
             queue=False
         ).then(
             fn=process_streaming,
-            inputs=[message_state, chatbot, system_prompt, enable_guardrails_checkbox],
+            inputs=_stream_inputs,
             outputs=[chatbot],
             queue=True
         )
         
         submit_btn.click(
             fn=send_message_and_clear,
-            inputs=[msg, chatbot, system_prompt, enable_guardrails_checkbox],
-            outputs=[msg, message_state, chatbot, system_prompt, enable_guardrails_checkbox],
+            inputs=_inputs,
+            outputs=[msg, message_state, chatbot, system_prompt, enable_guardrails_checkbox, enable_long_term_memory_checkbox],
             queue=False
         ).then(
             fn=process_streaming,
-            inputs=[message_state, chatbot, system_prompt, enable_guardrails_checkbox],
+            inputs=_stream_inputs,
             outputs=[chatbot],
             queue=True
         )
         
+        # 清除對話：先寫入長期記憶再清空
         clear_btn.click(
-            fn=clear_chat,
+            fn=save_then_clear,
+            inputs=[chatbot, enable_long_term_memory_checkbox],
             outputs=[chatbot, msg],
+            queue=False
+        )
+        
+        clear_memory_btn.click(
+            fn=do_clear_memory,
+            outputs=[memory_action_status],
             queue=False
         )
         
